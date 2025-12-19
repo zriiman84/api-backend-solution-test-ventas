@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ApiSolutionTestVentas.Api/ApiSolutionTestVentas.Api.csproj" />
+    <Project Path="src/ApiSolutionTestVentas.Dto/ApiSolutionTestVentas.Dto.csproj" />
+    <Project Path="src/ApiSolutionTestVentas.Entities/ApiSolutionTestVentas.Entities.csproj" />
+    <Project Path="src/ApiSolutionTestVentas.Persistencia/ApiSolutionTestVentas.Persistencia.csproj" />
+    <Project Path="src/ApiSolutionTestVentas.Repositories/ApiSolutionTestVentas.Repositories.csproj" />
+    <Project Path="src/ApiSolutionTestVentas.Services/ApiSolutionTestVentas.Services.csproj" />
+  </Folder>
+</Solution>
