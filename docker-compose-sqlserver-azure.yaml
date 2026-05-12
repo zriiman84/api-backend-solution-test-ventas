@@ -1,0 +1,18 @@
+﻿version: '3.8'
+
+services:
+  api_sales:
+    image: mcr.microsoft.com/dotnet/aspnet:10.0  # Fuerza la versión correcta
+    build:
+      context: .            # El punto significa "la carpeta donde está el .sln"
+      dockerfile: "src/ApiSolutionTestVentas.Api/Dockerfile"
+    container_name: net-api-sales
+    environment:
+      - ASPNETCORE_KESTREL__ENDPOINTS__HTTP__URL=http://+:80
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=tcp:${ENDPOINT_SERVER_SQL_AZURE},1433;Initial Catalog=${DB_NAME};Persist Security Info=False;User ID=${SQL_USER};Password=${SQL_PASSWORD};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;
+      - ConnectionStrings__AzureStorage=${STORAGE_KEY}
+      - JWT__JWTKey=${JWT_SECRET}
+    ports:
+      - 8080:80
+    restart: unless-stopped

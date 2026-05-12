@@ -24,13 +24,13 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 
-//Configuración del log
+//Configuraciï¿½n del log
 var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "log.txt");
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
     .WriteTo.File(logPath,
-        rollingInterval: RollingInterval.Day, //Indicamos que se cree un nuevo archivo cada día
-        restrictedToMinimumLevel: LogEventLevel.Information) //Mínimo nivel de restricción será Information hacia arriba
+        rollingInterval: RollingInterval.Day, //Indicamos que se cree un nuevo archivo cada dï¿½a
+        restrictedToMinimumLevel: LogEventLevel.Information) //Mï¿½nimo nivel de restricciï¿½n serï¿½ Information hacia arriba
     .CreateLogger();
 
 
@@ -38,11 +38,11 @@ try
 {
     //Matriculo el log
     builder.Logging.AddSerilog(logger);
-    //Agregando una línea inicial en el LOG indicando en qué ambiente nos encontramos.
+    //Agregando una lï¿½nea inicial en el LOG indicando en quï¿½ ambiente nos encontramos.
     logger.Information($"LOG INITIALIZED in {Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "NO ENV"}");
 
     // ******************************************************
-    // APLICAR ESTA CONFIGURACIÓN (para . decinal)
+    // APLICAR ESTA CONFIGURACIï¿½N (para . decinal)
     // 1. Crear una cultura
     var cultureInfo = CultureInfo.InvariantCulture;
 
@@ -51,13 +51,13 @@ try
     CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
     // ******************************************************
 
-    //Definir una política de CORS
+    //Definir una polï¿½tica de CORS
     var corsConfiguration = "ApiSolucionTestVentasCors";
     builder.Services.AddCors(setup =>
     {
         setup.AddPolicy(corsConfiguration, policy =>
         {
-            //policy.WithOrigins("https://app.miempresa.com") // dominio del frontend para darle permisos a un dominio específico
+            //policy.WithOrigins("https://app.miempresa.com") // dominio del frontend para darle permisos a un dominio especï¿½fico
             policy.AllowAnyOrigin(); // Que cualquier dominio puede consumir el API
             policy.AllowAnyHeader().WithExposedHeaders(new string[] { "TotalRegistros" });
             policy.AllowAnyMethod();
@@ -75,7 +75,7 @@ try
     builder.Services.AddControllers(options => { options.Filters.Add(typeof(FilterExceptions)); });
 
     //Estandarizar las repuestas de los ENDPOINTS en caso de Errores, basado en ApiBehaviorOptions
-    //ApiBehaviorOptions: Es la clase de opciones que define cómo deben comportarse los controllers de API.
+    //ApiBehaviorOptions: Es la clase de opciones que define cï¿½mo deben comportarse los controllers de API.
     builder.Services.Configure<ApiBehaviorOptions>(options =>
     {
         options.InvalidModelStateResponseFactory = context =>
@@ -104,19 +104,19 @@ try
     });
 
     //Identity
-    //Configura políticas para la gestión de usuarios, roles, contraseñas y claims.
+    //Configura polï¿½ticas para la gestiï¿½n de usuarios, roles, contraseï¿½as y claims.
     builder.Services.AddIdentity<SpecificUserIdentity, IdentityRole>(policies =>
     {
-        policies.Password.RequireDigit = true; //Las contraseñas deben contener al menos un dígito numérico (0-9).
-        policies.Password.RequiredLength = 6; //Mínimo de 6 dígitos
+        policies.Password.RequireDigit = true; //Las contraseï¿½as deben contener al menos un dï¿½gito numï¿½rico (0-9).
+        policies.Password.RequiredLength = 6; //Mï¿½nimo de 6 dï¿½gitos
         policies.User.RequireUniqueEmail =
-            true; //Cada usuario registrado debe tener un correo único. Si ingresa un correo existente arrojará error.
+            true; //Cada usuario registrado debe tener un correo ï¿½nico. Si ingresa un correo existente arrojarï¿½ error.
     })
         .AddEntityFrameworkStores<
             ApplicationDbContext>() //Indica a Identity que debe usar EF Core para almacenar los datos en la BD definida por tu ApplicationDbContext
         .AddDefaultTokenProviders();
 
-    //Autenticación
+    //Autenticaciï¿½n
     //builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
     builder.Services.AddAuthentication(x =>
     {
@@ -138,13 +138,13 @@ try
 
     //Registering healthchecks: 2 HealthChecks --> pueden ser varios
     builder.Services.AddHealthChecks()
-        .AddCheck("ApiSolutionTestVentascheck", () => HealthCheckResult.Healthy()) // valida que mi aplicación esté ok
-        .AddDbContextCheck<ApplicationDbContext>(); // valida que mi BD esté ok
+        .AddCheck("ApiSolutionTestVentascheck", () => HealthCheckResult.Healthy()) // valida que mi aplicaciï¿½n estï¿½ ok
+        .AddDbContextCheck<ApplicationDbContext>(); // valida que mi BD estï¿½ ok
 
     //Authorization
     builder.Services.AddAuthorization();
 
-    //inyección de dependencias
+    //inyecciï¿½n de dependencias
     //HttpContext
     builder.Services.AddHttpContextAccessor();
 
@@ -199,16 +199,16 @@ try
     }
 
     app.UseHttpsRedirection();
-    //app.UseStaticFiles(); //Para poder ver las imágenes almacenadas en wwwroot/products
+    //app.UseStaticFiles(); //Para poder ver las imï¿½genes almacenadas en wwwroot/products
     app.UseAuthentication();
     app.UseAuthorization();
-    app.UseCors(corsConfiguration); //Usar la política de CORS antes del mapeo de endpoints
+    app.UseCors(corsConfiguration); //Usar la polï¿½tica de CORS antes del mapeo de endpoints
     app.MapHome(); //Minimal API creado para el Home
     app.MapReporteVentasCliente(); //Minimal API creado para el Reporte de Venta por Cliente
     app.MapReporteVentasProducto(); //Minimal API creado para wl Reporte de Venta por Producto
     app.MapControllers(); //Mapeo de los controladores
 
-    // Aplicar migraciones y sembrar datos (asíncronamente)
+    // Aplicar migraciones y sembrar datos (asï¿½ncronamente)
     await ApplyMigrationsAndSeedDataAsync(app);
 
     //Configuring health checks
@@ -236,10 +236,13 @@ static async Task ApplyMigrationsAndSeedDataAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
 
-    //Aplicar las migraciones automáticas
+    //Aplicar las migraciones automï¿½ticas
     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     if (dbContext.Database.GetPendingMigrations().Any())
     {
+        //MigrateAsync
+        //1. Verifica si existe la BD referenciada en ConnectionString. Si no existe, la crea.
+        //2. Ejecuta migrations para crear y/o actualizar los objetos de BD
         await dbContext.Database.MigrateAsync();
     }
 

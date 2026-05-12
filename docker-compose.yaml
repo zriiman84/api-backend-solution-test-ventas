@@ -31,7 +31,9 @@ services:
     environment:
       - ASPNETCORE_KESTREL__ENDPOINTS__HTTP__URL=http://+:80
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Server=db_sales;Database=${DB_NAME};User Id=sa;Password=${SQL_PASSWORD};TrustServerCertificate=True;
+      - ConnectionStrings__DefaultConnection=Server=db_sales;Database=${DB_NAME};User Id=${SQL_USER};Password=${SQL_PASSWORD};TrustServerCertificate=True;
+      - ConnectionStrings__AzureStorage=${STORAGE_KEY}
+      - JWT__JWTKey=${JWT_SECRET}
     networks:
       - sales_network
     ports:
