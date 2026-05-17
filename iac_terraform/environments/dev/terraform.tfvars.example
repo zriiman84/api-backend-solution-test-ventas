@@ -1,0 +1,38 @@
+#===========================================
+# Ambiente / entorno
+#===========================================
+location_input = "TU_REGION"
+environment_input = "Dvelepment"
+
+#===========================================
+# Resource group
+#===========================================
+resource_group_name_input = "resource_name"
+
+#===========================================
+# Servidor de Base de datos
+#===========================================
+server_db_name_input    = "server_name"
+admin_login_input       = "user_admin"
+admin_password_input    = 
+
+#===========================================
+# Base de datos
+#===========================================
+database_name_input     = "database_name"
+db_sku_name_input       = "Basic"
+db_max_size_gb_input    = 2
+db_storage_account_type_input = "Local"
+client_ip_input                = "tu_ip_local"
+
+#===========================================
+# Storage account y container
+#===========================================
+storage_account_name_input    = "storage_account_name"
+storage_account_tier_input    = "Standard"
+storage_account_replication_type_input  = "LRS"
+storage_account_kind_input    =  "StorageV2"
+storage_access_tier_input     =  "Hot"
+storage_min_tls_version_input =  "TLS1_2"
+storage_container_name_input  = "container_name"
+storage_container_access_type_input = "blob"

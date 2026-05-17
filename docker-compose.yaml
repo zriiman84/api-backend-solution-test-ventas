@@ -1,27 +1,6 @@
 ﻿version: '3.8'
 
 services:
-  db_sales:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: sql-server-sales
-    ports:
-      - 2590:1433
-    environment:
-      - SA_PASSWORD=${SQL_PASSWORD}
-      - ACCEPT_EULA=Y
-      - MSSQL_PID=Developer
-    volumes:
-      - sqldata:/var/opt/mssql
-    networks:
-      - sales_network
-    healthcheck:
-      test: ["CMD-SHELL", "if [ -f /opt/mssql-tools18/bin/sqlcmd ]; then /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P Pa@ssw0rd.2026*+ -Q 'SELECT 1' -C; elif [ -f /opt/mssql-tools/bin/sqlcmd ]; then /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P Pa@ssw0rd.2026*+ -Q 'SELECT 1'; else exit 1; fi"]
-      interval: 10s         # Intervalo entre cada intento de healthcheck
-      timeout: 10s          # Tiempo máximo para la respuesta de la BD
-      retries: 3            # Número de intentos antes de marcarlo como no saludable
-      start_period: 10s     # Tiempo antes de comenzar a chequear la salud
-    restart: unless-stopped
-
   api_sales:
     image: mcr.microsoft.com/dotnet/aspnet:10.0  # Fuerza la versión correcta
     build:
@@ -29,25 +8,12 @@ services:
       dockerfile: "src/ApiSolutionTestVentas.Api/Dockerfile"
     container_name: net-api-sales
     environment:
+      - TZ=America/Lima
       - ASPNETCORE_KESTREL__ENDPOINTS__HTTP__URL=http://+:80
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Server=db_sales;Database=${DB_NAME};User Id=${SQL_USER};Password=${SQL_PASSWORD};TrustServerCertificate=True;
+      - ConnectionStrings__DefaultConnection=Server=tcp:${ENDPOINT_SERVER_SQL_AZURE},1433;Initial Catalog=${DB_NAME};Persist Security Info=False;User ID=${SQL_USER};Password=${SQL_PASSWORD};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;
       - ConnectionStrings__AzureStorage=${STORAGE_KEY}
       - JWT__JWTKey=${JWT_SECRET}
-    networks:
-      - sales_network
     ports:
       - 8080:80
-    depends_on:
-      db_sales:
-        condition: service_healthy  # Espera hasta que el servicio de la base de datos esté saludable
     restart: unless-stopped
-
-networks:
-  sales_network:
-    driver: bridge
-    name: sales_network
-    
-volumes:
-  sqldata:
-    name: sqldata

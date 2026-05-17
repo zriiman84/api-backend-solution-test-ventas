@@ -482,3 +482,24 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# IaC con Terraform - valores de variables
+
+# Archivos de estado local de Terraform (¡CRÍTICO!)
+*.tfstate
+*.tfstate.*
+
+# Archivos de configuración de variables locales
+*.tfvars
+*.tfvars.json
+
+#Carpetas de inicialización de Terraform (.terraform)
+.terraform/
+
+#Archivos de bloqueo de variables de entorno (Opcional pero recomendado)
+.terraform.tfstate.lock.info
+
+# Archivos ocultos del sistema operativo o editores
+.DS_Store
+.idea/
+.vscode/
