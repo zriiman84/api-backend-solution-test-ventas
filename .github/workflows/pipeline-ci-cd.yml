@@ -7,7 +7,6 @@ on:
 # Definimos variables globales para el pipeline
 env:
   APP_NAME_CUSTOM: "sales-api-backend-${{ vars.ENV }}"
-  AZURE_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
 
 jobs:
   # ==========================================
@@ -22,26 +21,19 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      # Login limpio: Solo usa creds (ya que el JSON contiene el ID de suscripción correcto)
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }} # El JSON del Service Principal
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-      
-      # Aseguramos el contexto del CLI en el CD
-      - name: Set Azure Subscription Context
-        run: |
-          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Login to Azure Container Registry (ACR)
         run: |
           az acr login --name ${{ secrets.ACR_NAME }}
-      
-      # Generaremos una build / artefacto con 1 tag: el SHA-ID (commit)
+
       - name: Build and Push Backend Image
         run: |
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/sales-api:${{ github.sha }} -f src/ApiSolutionTestVentas.Api/Dockerfile .
-          
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/sales-api:${{ github.sha }}
   
   # ==========================================
@@ -49,7 +41,7 @@ jobs:
   # ==========================================
   deploy-to-dev:
     name: "[CD] Deploy to AKS"
-    needs: build-and-push       #Asegura que el CD espere a que termine el CI con éxito
+    needs: build-and-push # Asegura que el CD espere a que termine el CI con éxito
     environment: development
     runs-on: ubuntu-latest
     
@@ -57,26 +49,21 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # Estandarizado: Login con suscripción explícita
+      # Login limpio: Solo usa creds
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      # Aseguramos el contexto del CLI en el CD
-      - name: Set Azure Subscription Context
-        run: |
-          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
-
-      # Conectarse al clúster de AKS usando Azure CLI
+      # 1. Conectarse al clúster de AKS usando el parámetro oficial de suscripción
       - name: Set AKS Context
         uses: azure/aks-set-context@v4
         with:
           resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
           cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
+          subscription: ${{ secrets.SUBSCRIPTION_ID }} # <-- SOLUCIÓN NATIVA: Le dice al AKS exactamente dónde buscar sin usar comandos Bash
 
-      # rear o actualizar los secretos dentro de Kubernetes de forma segura
+      # 2. Crear o actualizar los secretos dentro de Kubernetes de forma segura
       - name: "Create Kubernetes Secrets"
         run: |
           kubectl create secret generic backend-secrets \
