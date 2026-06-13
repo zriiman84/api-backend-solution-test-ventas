@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  #__APP_NAME__ se enviará desde el archivo 'backend-cd.yml'
+  name: __APP_NAME__-deployment
+  #Nuestro despliegue existirá en el espacio de nombres default (el espacio de trabajo por defecto del clúster).
+  namespace: default 
+spec:
+  replicas: 2   #Mantener 2 réplicas activas siempre (2 PODS)
+  selector:
+    matchLabels:
+      # Etiqueta que busca el selector // AKS siempre administrará contenedores que tengan esta etiqueta
+      app: __APP_NAME__   
+  
+  #template: Define el plano o molde de cómo se deben fabricar los contenedores
+  template:
+    metadata:
+      labels:
+        # Etiqueta que tiene el Pod (debe ser la misma que el selector/matchLabels).
+        app: __APP_NAME__   
+    spec:
+      containers:
+        # Nombre del contenedor (Puede ser distinto al del POD)
+        - name: __APP_NAME__-container   
+          #Nombre de mi imagen que se obtendrá del ACR >> se enviará desde el archivo 'backend-cd.yml'
+          image: __IMAGE_PLACEHOLDER__   
+          ports:
+            - containerPort: 80   #La app web esuchará por el puerto 80 al interno
+          
+          #Bloque similar al enviroment del docker.compose.yaml
+          #Indica: ir al almacén del clúster llamado <backend-secrets> y extrae el valor que guardé bajo la llave <key>
+          #Los key se setearán con valores de los secretos, esto se realizará desde el archivo 'backend-cd.yml'
+          env:
+            - name: TZ
+              value: "America/Lima"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: db-connection-string
+            - name: ConnectionStrings__AzureStorage
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: storage-connection-string
+            - name: JWT__JWTKey
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: jwt-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: __APP_NAME__-service
+  namespace: default
+spec:
+  type: LoadBalancer  #Créame un Azure Load Balancer y asígname una IP Pública
+  ports:
+    - port: 80        #Puerto interno para redirigir el tráfico entre contenedores
+      targetPort: 8080  #Puerto externo. El Frontend llamará a La URL final de tu API - ejemplo: http://20.225.15.84:8080/api/productos.
+  selector:
+    app: __APP_NAME__ #Indica a dónde enviar el tráfico. Balanceará inteligentemente distribuyéndola en un 50% y 50% entre las 2 réplicas de tu API 

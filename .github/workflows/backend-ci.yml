@@ -1,0 +1,39 @@
+name: SalesStore - CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ] # Se dispara al fusionar a main
+    paths:
+      - 'src/**'        # Solo si cambia el código del backend o capas
+      - '**.csproj'
+
+jobs:
+  build-and-push:
+    name: [CI] Build & Push
+    environment: development
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }} # El JSON del Service Principal
+
+      - name: Login to Azure Container Registry (ACR)
+        run: |
+          az acr login --name ${{ secrets.ACR_NAME }}
+      
+      #Generaremos una build / artefacto con 2 tags: el SHA-ID (commit) y otro como latest
+      #El segundo tag es para mayor facilidad si alguien desea descargarse la imagen con > docker pull ACR_LOGIN_SERVER:latest
+      - name: Build and Push Backend Image
+        run: |
+          docker build \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/sales-api:${{ github.sha }} \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/sales-api:latest \
+            -f src/ApiSolutionTestVentas.Api/Dockerfile .
+          
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/sales-api:${{ github.sha }}
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/sales-api:latest
