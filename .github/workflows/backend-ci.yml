@@ -9,7 +9,8 @@ on:
 
 jobs:
   build-and-push:
-    name: [CI] Build & Push
+    name: "[CI] Build & Push"
+    environment: development
     runs-on: ubuntu-latest
     
     steps:
