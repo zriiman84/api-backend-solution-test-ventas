@@ -195,7 +195,17 @@ try
     {
         //app.MapOpenApi();
         app.UseSwagger();
-        app.UseSwaggerUI();
+        //app.UseSwaggerUI();
+        //Agregado para evitar problemas de pueerto cuando trabajmos con AKS (Kuberntes en Azure) y swagger
+        app.UseSwaggerUI(c =>
+        {
+            // Esto obliga a Swagger a buscar el JSON usando rutas relativas 
+            // sin importar si viene del puerto 80, 8080 o un proxy de Azure.
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", "SalesStore API V1");
+        
+            // Si quieres que cargue directo en la raíz de la IP:8080 sin poner /swagger
+            // c.RoutePrefix = string.Empty; 
+        });
     }
 
     app.UseHttpsRedirection();
