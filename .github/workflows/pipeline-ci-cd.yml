@@ -6,7 +6,8 @@ on:
 
 # Definimos variables globales para el pipeline
 env:
-  APP_NAME_CUSTOM: "sales-api-backend-${{ vars.ENV }}" # <-- Verifica si tu variable en GitHub es ENV o ENVIRONMENT
+  APP_NAME_CUSTOM: "sales-api-backend-${{ vars.ENV }}"
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}
 
 jobs:
   # ==========================================
@@ -25,6 +26,12 @@ jobs:
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }} # El JSON del Service Principal
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      
+      # Aseguramos el contexto del CLI en el CD
+      - name: Set Azure Subscription Context
+        run: |
+          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Login to Azure Container Registry (ACR)
         run: |
@@ -42,7 +49,7 @@ jobs:
   # ==========================================
   deploy-to-dev:
     name: "[CD] Deploy to AKS"
-    needs: build-and-push # <-- Fuerza a que el CD espere a que el CI termine
+    needs: build-and-push       #Asegura que el CD espere a que termine el CI con éxito
     environment: development
     runs-on: ubuntu-latest
     
@@ -50,19 +57,26 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      # Estandarizado: Login con suscripción explícita
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      # 1. Conectarse al clúster de AKS usando Azure CLI
+      # Aseguramos el contexto del CLI en el CD
+      - name: Set Azure Subscription Context
+        run: |
+          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      # Conectarse al clúster de AKS usando Azure CLI
       - name: Set AKS Context
         uses: azure/aks-set-context@v4
         with:
           resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
           cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
 
-      # 2. Crear o actualizar los secretos dentro de Kubernetes de forma segura
+      # rear o actualizar los secretos dentro de Kubernetes de forma segura
       - name: "Create Kubernetes Secrets"
         run: |
           kubectl create secret generic backend-secrets \
@@ -78,7 +92,6 @@ jobs:
           sed -i "s|__APP_NAME__|${{ env.APP_NAME_CUSTOM }}|g" k8s/deployment.yml
 
           # Reemplaza el marcador de la imagen con el servidor ACR y el SHA del commit
-          # <-- CORREGIDO: Cambiado github.event.workflow_run.head_sha por github.sha
           sed -i 's|__IMAGE_PLACEHOLDER__|${{ secrets.ACR_LOGIN_SERVER }}/sales-api:${{ github.sha }}|g' k8s/deployment.yml
 
       # 4. Desplegar en AKS con el archivo ya personalizado
