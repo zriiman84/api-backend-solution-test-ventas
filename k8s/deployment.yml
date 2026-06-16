@@ -56,6 +56,11 @@ kind: Service
 metadata:
   name: __APP_NAME__-service
   namespace: default
+  annotations:
+    # Asigna un subdominio dinámico en los servidores de Azure de tu región.
+    # Ejemplo: api-backend-sales-dev.eastus.cloudapp.azure.com
+    service.beta.kubernetes.io/azure-dns-label-name: "__APP_NAME__"
+ 
 spec:
   type: LoadBalancer  #Créame un Azure Load Balancer y asígname una IP Pública
   ports:
