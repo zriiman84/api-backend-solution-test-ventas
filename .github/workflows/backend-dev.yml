@@ -25,17 +25,6 @@ jobs:
       - name: Set Short SHA
         #run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
         run: echo "SHA_SHORT=${GITHUB_SHA:0:7}" >> $GITHUB_ENV  #Obtiene los primero 7 caractares de SHA-ID del commit
-      
-      #  Configurar Node.js (puedes cambiar la versión)
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      # Instalar dependencias con npm
-      - name: Install dependencies
-        run: npm install
 
       - name: 🖥 Mostrar información del runner
         run: |
@@ -82,17 +71,6 @@ jobs:
       - name: Set Short SHA
         #run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
         run: echo "SHA_SHORT=${GITHUB_SHA:0:7}" >> $GITHUB_ENV  #Obtiene los primero 7 caracteres de SHA-ID del commit
-      
-      #  Configurar Node.js (puedes cambiar la versión)
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      
-      # Instalar dependencias con npm
-      - name: Install dependencies
-        run: npm install
 
       - name: 🖥 Mostrar información del runner
         run: |
