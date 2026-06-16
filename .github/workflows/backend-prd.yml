@@ -1,0 +1,168 @@
+name: SalesStore - CD QA Pipeline
+
+on:
+  push:
+    branches: [ "main" ] # Se dispara estrictamente al fusionar o subir a la rama main
+env:
+  APP_NAME_CUSTOM: "sales-api-backend-${{ vars.ENV }}"  # Nombre específico para el ambiente de PRD
+
+jobs:
+  # ==========================================
+  # FASE 1: VERIFICACIÓN DEL ARTEFACTO (CI)
+  # ==========================================
+  verify-artifact:
+    name: "[CI] Verify ACR Image"
+    environment: prod
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+      
+      # Obtener el SHA-ID CORTO del commit
+      - name: Set Short SHA
+        run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
+      
+      
+      #  Configurar Node.js (puedes cambiar la versión)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      
+      # Instalar dependencias con npm
+      - name: Install dependencies
+        run: npm install
+
+      - name: 🖥 Mostrar información del runner
+        run: |
+          echo "Sistema operativo: $(uname -a)"
+          echo "Directorio actual: $(pwd)"
+          echo "Archivos en el repo:"
+          ls -la
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry (ACR)
+        run: |
+          echo "Ingresando al servidor ACR: ${{ vars.ACR_LOGIN_SERVER }}"
+          az acr login --name ${{ vars.ACR_NAME }}
+
+      # Buscamos si la etiqueta corta (ej: "a1b2c3d") existe en tu repositorio del ACR
+      - name: 🔍 Verificar la existencia de la imagen en el ACR
+        run: |
+          IMAGE_TAG="${{ env.SHA_SHORT }}"
+          REPO_NAME="sales-api"
+          
+          echo "Buscando la etiqueta $IMAGE_TAG en el repositorio $REPO_NAME..."
+          
+          # Consultamos al CLI de Azure si existe el tag, devolviendo un booleano
+          EXISTS=$(az acr repository show-tags --name ${{ vars.ACR_NAME }} --repository $REPO_NAME --query "contains(@, '$IMAGE_TAG')")
+          
+          if [ "$EXISTS" = "false" ]; then
+            echo "::error::La imagen con el TAG $IMAGE_TAG NO existe en el ACR. Debes pasar primero por la rama develop."
+            exit 1
+          else
+            echo "¡Éxito! La imagen existe. Procediendo al despliegue en QA."
+          fi
+
+  # ==========================================
+  # FASE 2: APROBACIÓN PARA DESPLIEGUE EN PROD
+  # ==========================================
+  approval-prod:
+    name: "Approval CD in PROD"
+    needs: verify-artifact    # Exige que la validación del paso anterior sea exitosa
+    environment:
+      name: approval-prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approval qa
+        run: echo "Esperando aprobación para desplegar en PROD"
+        
+        
+  # ==========================================
+  # FASE 3: DESPLIEGUE CONTINUO (CD - PROD)
+  # ==========================================
+  deploy-to-prd:
+    name: "[CD] Deploy to AKS PROD"
+    needs: approval-prod
+    #needs: verify-artifact 
+    environment: prod        # GitHub inyectará automáticamente los secretos del entorno prod
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+      
+      # Obtener el SHA-ID CORTO del commit
+      - name: Set Short SHA
+        run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
+
+      #  Configurar Node.js (puedes cambiar la versión)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # Instalar dependencias con npm
+      - name: Install dependencies
+        run: npm install
+
+      - name: 🖥 Mostrar información del runner
+        run: |
+          echo "Sistema operativo: $(uname -a)"
+          echo "Directorio actual: $(pwd)"
+          echo "Archivos en el repo:"
+          ls -la
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS Context - Message
+        run: |
+          echo "Ingresando al AKS: ${{ vars.AKS_CLUSTER_NAME }}"
+
+      # Conectarse al clúster de AKS usando el parámetro oficial de suscripción
+      - name: Set AKS Context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ vars.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
+          subscription: ${{ secrets.SUBSCRIPTION_ID }} # <-- SOLUCIÓN NATIVA: Le dice al AKS exactamente dónde buscar sin usar comandos Bash
+
+      # Crear o actualizar los secretos dentro de Kubernetes de forma segura para QA
+      - name: "Create Kubernetes Secrets"
+        run: |
+          echo "Creando las variables de entorno que serán usados por la app .NET"
+          echo "ConnectionStrings__DefaultConnection:...."
+          echo "ConnectionStrings__AzureStorage:...."
+          echo "JWT__JWTKey...."
+          
+          kubectl create secret generic backend-secrets \
+            --from-literal=db-connection-string="${{ secrets.DB_CONNECTION_STRING }}" \
+            --from-literal=storage-connection-string="${{ secrets.STORAGE_CONNECTION_STRING }}" \
+            --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      #  Personalizar dinámicamente el Manifiesto de K8s (Nombre de la App e Imagen)
+      - name: "Customize K8s Manifest"
+        run: |
+          # Reemplaza todos los marcadores __APP_NAME__ con el nombre personalizado
+          echo "Inyectando el nombre de los PODS y Conatiner: ${{ env.APP_NAME_CUSTOM }}"
+          sed -i "s|__APP_NAME__|${{ env.APP_NAME_CUSTOM }}|g" k8s/deployment.yml
+
+          # Inyecta la imagen existente reutilizando el mismo SHA que vino de develop
+          echo "Inyectando el nombre de la imagen del ACR"
+          sed -i 's|__IMAGE_PLACEHOLDER__|${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}|g' k8s/deployment.yml
+
+      # 4. Desplegar en AKS el ambiente de QA
+      - name: "Deploy to AKS Cluster"
+        run: |
+          kubectl apply -f k8s/deployment.yml

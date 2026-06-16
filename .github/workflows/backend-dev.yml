@@ -1,0 +1,150 @@
+name: SalesStore - CI Pipeline
+
+on:
+  push:
+    branches: [ "develop" ] # Se dispara al fusionar a develop
+
+# Definimos variables globales para el pipeline
+env:
+  APP_NAME_CUSTOM: "sales-api-backend-${{ vars.ENV }}"
+
+jobs:
+  # ==========================================
+  # FASE 1: INTEGRACIÓN CONTINUA (CI)
+  # ==========================================
+  build-and-push:
+    name: "[CI] Build & Push"
+    environment: development
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+      
+      # Obtener el SHA-ID CORTO del commit
+      - name: Set Short SHA
+        #run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
+        run: echo "SHA_SHORT=${GITHUB_SHA:0:7}" >> $GITHUB_ENV  #Obtiene los primero 7 caractares de SHA-ID del commit
+      
+      #  Configurar Node.js (puedes cambiar la versión)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # Instalar dependencias con npm
+      - name: Install dependencies
+        run: npm install
+
+      - name: 🖥 Mostrar información del runner
+        run: |
+          echo "Sistema operativo: $(uname -a)"
+          echo "Directorio actual: $(pwd)"
+          echo "Archivos en el repo:"
+          ls -la
+      
+      # Solo usa creds (ya que el JSON contiene el ID de suscripción correcto)
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry (ACR)
+        run: |
+          echo "Ingresando al servidor ACR: ${{ vars.ACR_LOGIN_SERVER }}"
+          az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: ✅ Build and Push Backend Image
+        run: |
+          echo "Construyendo la imagen del ACR: ACR_LOGIN_SERVER/sales-api:SHA_ID_CORTO"
+          echo "Nombre de la imagen: ${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}"
+          docker build -t ${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }} -f src/ApiSolutionTestVentas.Api/Dockerfile .
+
+          echo "Push de la imagen al ACR"
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}
+
+  
+  # ==========================================
+  # FASE 2: DESPLIEGUE CONTINUO (CD)
+  # ==========================================
+  deploy-to-dev:
+    name: "[CD] Deploy to AKS"
+    needs: build-and-push # Asegura que el CD espere a que termine el CI con éxito
+    environment: development
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # Obtener el SHA-ID CORTO del commit
+      - name: Set Short SHA
+        #run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
+        run: echo "SHA_SHORT=${GITHUB_SHA:0:7}" >> $GITHUB_ENV  #Obtiene los primero 7 caracteres de SHA-ID del commit
+      
+      #  Configurar Node.js (puedes cambiar la versión)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      
+      # Instalar dependencias con npm
+      - name: Install dependencies
+        run: npm install
+
+      - name: 🖥 Mostrar información del runner
+        run: |
+          echo "Sistema operativo: $(uname -a)"
+          echo "Directorio actual: $(pwd)"
+          echo "Archivos en el repo:"
+          ls -la
+
+      # Login limpio: Solo usa creds
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS Context - Mensaje
+        run: |
+          echo "Ingresando al AKS: ${{ vars.AKS_CLUSTER_NAME }}"
+      
+      # Conectarse al clúster de AKS usando el parámetro oficial de suscripción
+      - name: Set AKS Context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ vars.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
+          subscription: ${{ secrets.SUBSCRIPTION_ID }} # <-- SOLUCIÓN NATIVA: Le dice al AKS exactamente dónde buscar sin usar comandos Bash
+
+      # Crear o actualizar los secretos dentro de Kubernetes de forma segura
+      - name: "Create Kubernetes Secrets"
+        run: |
+          echo "Creando las variables de entorno que serán usados por la app .NET"
+          echo "ConnectionStrings__DefaultConnection:...."
+          echo "ConnectionStrings__AzureStorage:...."
+          echo "JWT__JWTKey...."
+          
+          kubectl create secret generic backend-secrets \
+            --from-literal=db-connection-string="${{ secrets.DB_CONNECTION_STRING }}" \
+            --from-literal=storage-connection-string="${{ secrets.STORAGE_CONNECTION_STRING }}" \
+            --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # Personalizar dinámicamente el Manifiesto de K8s (Nombre de la App e Imagen)
+      - name: "Customize K8s Manifest"
+        run: |
+          # Reemplaza todos los marcadores __APP_NAME__ con el nombre personalizado
+          echo "Inyectando el nombre de los PODS y Conatiner: ${{ env.APP_NAME_CUSTOM }}"
+          sed -i "s|__APP_NAME__|${{ env.APP_NAME_CUSTOM }}|g" k8s/deployment.yml
+
+          # Reemplaza el marcador de la imagen con el servidor ACR y el SHA del commit
+          echo "Inyectando el nombre de la imagen del ACR"
+          sed -i 's|__IMAGE_PLACEHOLDER__|${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}|g' k8s/deployment.yml
+
+      # 4. Desplegar en AKS con el archivo ya personalizado
+      - name: ✅ Deploy to AKS Cluster
+        run: |
+          kubectl apply -f k8s/deployment.yml
