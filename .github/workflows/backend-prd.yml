@@ -71,12 +71,6 @@ jobs:
       - name: Set Candidate SHA
         run: echo "SHA_SHORT=${{ needs.resolve-candidate-sha.outputs.sha_short }}" >> $GITHUB_ENV
 
-      - name: 🖥 Mostrar información del runner
-        run: |
-          echo "Sistema operativo: $(uname -a)"
-          echo "Directorio actual: $(pwd)"
-          echo "SHA del artefacto a verificar: ${{ env.SHA_SHORT }}"
-
       - name: Azure Login
         uses: azure/login@v2
         with:
