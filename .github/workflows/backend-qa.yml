@@ -1,0 +1,176 @@
+name: SalesStore - CD QA Pipeline
+
+on:
+  push:
+    branches: [ "qa" ] # Se dispara estrictamente al fusionar o subir a la rama qa
+
+env:
+  APP_NAME_CUSTOM: "sales-api-backend-${{ vars.ENV }}"  # Nombre específico para el ambiente de QA
+
+jobs:
+  # ==========================================
+  # FASE 1: RECUPERACIÓN DEL SHA CANDIDATO
+  # ==========================================
+  # En lugar de usar github.sha (que corresponde al merge commit de qa, no al build original),
+  # leemos el tag "release-candidate" que fue creado por el workflow de develop.
+  # Ese tag siempre apunta al commit exacto con el que se construyó y subió la imagen al ACR.
+  
+  resolve-candidate-sha:
+    name: "[CI] Resolve Candidate SHA"
+    environment: qa
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Necesario para que GITHUB_TOKEN pueda leer tags del repositorio
+
+    # Exponemos el SHA recuperado para que todos los jobs siguientes lo consuman
+    outputs:
+      sha_short: ${{ steps.get_sha.outputs.sha_short }}
+
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para leer tags de git
+
+      # Leemos el SHA del commit al que apunta el tag "release-candidate"
+      # Este tag fue creado/actualizado por el workflow de develop tras el build exitoso
+      - name: 🔍 Get SHA from release-candidate tag
+        id: get_sha
+        run: |
+          # Verificamos que el tag exista antes de proceder
+          if ! git ls-remote --tags origin | grep -q "refs/tags/release-candidate"; then
+            echo "::error::El tag 'release-candidate' no existe. Asegúrate de que el workflow de develop se haya ejecutado correctamente antes de promover a QA."
+            exit 1
+          fi
+
+          # Obtenemos el commit al que apunta el tag 'release-candidate' 
+          SHA_COMPLETO=$(git rev-list -n 1 refs/tags/release-candidate)
+          SHA_CORTO="${SHA_COMPLETO:0:7}"
+
+          echo "SHA completo del commit asociado al artefacto del ACR : $SHA_COMPLETO"
+          echo "SHA corto del commit - TAG del artefacto del ACR: $SHA_CORTO"
+          echo "SHA del merge actual en QA : ${GITHUB_SHA:0:7} (este es un commit nuevo generado por el PR a rama 'qa')"
+
+          echo "sha_short=$SHA_CORTO" >> $GITHUB_OUTPUT
+          echo "SHA_SHORT=$SHA_CORTO" >> $GITHUB_ENV
+
+  # ==========================================
+  # FASE 2: VERIFICACIÓN DEL ARTEFACTO EN ACR
+  # ==========================================
+  verify-artifact:
+    name: "[CI] Verify ACR Image"
+    needs: resolve-candidate-sha
+    environment: qa
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # Inyectamos el SHA resuelto en el entorno de este job
+      - name: Set Candidate SHA
+        run: echo "SHA_SHORT=${{ needs.resolve-candidate-sha.outputs.sha_short }}" >> $GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry (ACR)
+        run: |
+          echo "Ingresando al servidor ACR: ${{ vars.ACR_LOGIN_SERVER }}"
+          az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: 🔍 Verificar la existencia de la imagen en el ACR
+        run: |
+          IMAGE_TAG="${{ env.SHA_SHORT }}"
+          REPO_NAME="sales-api"
+          
+          echo "Buscando el tag '$IMAGE_TAG' en el repositorio '$REPO_NAME' del ACR..."
+          
+          EXISTS=$(az acr repository show-tags \
+            --name ${{ vars.ACR_NAME }} \
+            --repository $REPO_NAME \
+            --query "contains(@, '$IMAGE_TAG')")
+          
+          if [ "$EXISTS" = "false" ]; then
+            echo "::error::La imagen con el TAG '$IMAGE_TAG' NO existe en el ACR."
+            echo "::error::Verifica que el workflow de develop se completó correctamente y que el tag 'release-candidate' apunta al commit correcto."
+            exit 1
+          else
+            echo "✅ ¡Éxito! La imagen '$REPO_NAME:$IMAGE_TAG' existe en el ACR. Procediendo al despliegue en QA."
+          fi
+
+  # ==========================================
+  # FASE 3: APROBACIÓN PARA DESPLIEGUE EN QA
+  # ==========================================
+  approval-qa:
+    name: "Approval CD in QA"
+    needs: verify-artifact
+    environment:
+      name: approval-qa
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approval QA
+        run: echo "Esperando aprobación para desplegar a QA"
+  
+  # ==========================================
+  # FASE 4: DESPLIEGUE CONTINUO (CD - QA)
+  # ==========================================
+  deploy-to-qa:
+    name: "[CD] Deploy to AKS QA"
+    needs: [resolve-candidate-sha, approval-qa]
+    environment: qa
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # Recuperamos el SHA resuelto desde el primer job (no recalculamos)
+      - name: Set Candidate SHA
+        run: echo "SHA_SHORT=${{ needs.resolve-candidate-sha.outputs.sha_short }}" >> $GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS Context - Message
+        run: |
+          echo "Ingresando al AKS: ${{ vars.AKS_CLUSTER_NAME }}"
+
+      # Conectarse al clúster de AKS usando el parámetro oficial de suscripción
+      - name: Set AKS Context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ vars.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
+          subscription: ${{ secrets.SUBSCRIPTION_ID }}
+
+      # Crear o actualizar los secretos dentro de Kubernetes de forma segura
+      - name: "Create Kubernetes Secrets"
+        run: |
+          echo "Creando las variables de entorno que serán usadas por la app .NET"
+          echo "ConnectionStrings__DefaultConnection:...."
+          echo "ConnectionStrings__AzureStorage:...."
+          echo "JWT__JWTKey...."
+          
+          kubectl create secret generic backend-secrets \
+            --from-literal=db-connection-string="${{ secrets.DB_CONNECTION_STRING }}" \
+            --from-literal=storage-connection-string="${{ secrets.STORAGE_CONNECTION_STRING }}" \
+            --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: "Customize K8s Manifest"
+        run: |
+          echo "Inyectando el nombre de los PODS y Container: ${{ env.APP_NAME_CUSTOM }}"
+          sed -i "s|__APP_NAME__|${{ env.APP_NAME_CUSTOM }}|g" k8s/deployment.yml
+
+          echo "Inyectando la imagen del ACR con SHA: ${{ env.SHA_SHORT }}"
+          sed -i 's|__IMAGE_PLACEHOLDER__|${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}|g' k8s/deployment.yml
+
+      - name: ✅ Deploy to AKS Cluster
+        run: |
+          echo "Desplegando a AKS ${{ vars.AKS_CLUSTER_NAME }} con el archivo K8s actualizado"
+          kubectl apply -f k8s/deployment.yml

@@ -1,0 +1,165 @@
+name: SalesStore - CI/CD Dev Pipeline
+
+on:
+  push:
+    branches: [ "develop" ] # Se dispara al fusionar a develop
+
+# Definimos variables globales para el pipeline
+env:
+  APP_NAME_CUSTOM: "sales-api-backend-${{ vars.ENV }}"
+
+jobs:
+  # ==========================================
+  # FASE 1: INTEGRACIÓN CONTINUA (CI)
+  # ==========================================
+  build-and-push:
+    name: "[CI] Build & Push"
+    environment: development
+    runs-on: ubuntu-latest
+
+    # Exponemos el SHA corto como output para que el siguiente job lo consuma
+    outputs:
+      sha_short: ${{ steps.set_sha.outputs.sha_short }}
+    
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para poder operar con tags de git
+      
+      # Obtener el SHA-ID CORTO del commit y exponerlo como output del job
+      - name: Set Short SHA
+        id: set_sha
+        run: |
+          SHA_CORTO="${GITHUB_SHA:0:7}"
+          echo "SHA_SHORT=$SHA_CORTO" >> $GITHUB_ENV
+          echo "sha_short=$SHA_CORTO" >> $GITHUB_OUTPUT  # Output para el siguiente job
+
+      - name: 🖥 Mostrar información del runner
+        run: |
+          echo "Sistema operativo: $(uname -a)"
+          echo "Directorio actual: $(pwd)"
+          echo "Archivos en el repo:"
+          ls -la
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry (ACR)
+        run: |
+          echo "Ingresando al servidor ACR: ${{ vars.ACR_LOGIN_SERVER }}"
+          az acr login --name ${{ vars.ACR_NAME }}
+
+      # Build con dos tags: SHA corto (trazabilidad) + develop-latest (tag estable)
+      - name: ✅ Build and Push Backend Image
+        run: |
+          echo "Construyendo la imagen con tags: ${{ env.SHA_SHORT }} y develop-latest"
+          echo "Nombre de la imagen: ${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}"
+          docker build \
+            -t ${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }} \
+            -t ${{ vars.ACR_LOGIN_SERVER }}/sales-api:develop-latest \
+            -f src/ApiSolutionTestVentas.Api/Dockerfile .
+
+          echo "Push de ambos tags al ACR"
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/sales-api:develop-latest
+
+  # ==========================================
+  # FASE 2: TAGGING DEL ARTEFACTO CANDIDATO
+  # ==========================================
+  tag-release-candidate:
+    name: "[CI] Tag Release Candidate"
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Necesario para que GITHUB_TOKEN pueda hacer push del tag
+
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para trabajar con tags de git
+
+      # Crea/actualiza el tag "release-candidate" apuntando al commit exacto del build
+      # Este tag es el que usarán los workflows de QA y PROD
+      - name: 🏷️ Create/Update release-candidate Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Etiquetando el commit ${{ github.sha }} como release-candidate"
+          echo "SHA corto del artefacto: ${{ needs.build-and-push.outputs.sha_short }}"
+
+          # --force sobreescribe el tag si ya existe (cada nuevo build en develop lo actualiza)
+          git tag -f release-candidate ${{ github.sha }}
+          git push origin release-candidate --force
+
+      - name: ✅ Tag creado exitosamente
+        run: |
+          echo "Tag 'release-candidate' apunta ahora al commit: ${{ github.sha }}"
+          echo "La imagen en el ACR tiene el tag: ${{ needs.build-and-push.outputs.sha_short }}"
+          echo "Los workflows de QA y PROD usarán este SHA para localizar el artefacto y desplegar en sus respectivos ambientes"
+  
+  
+  # ==========================================
+  # FASE 3: DESPLIEGUE CONTINUO (CD)
+  # ==========================================
+  deploy-to-dev:
+    name: "[CD] Deploy to AKS"
+    needs: [build-and-push, tag-release-candidate]
+    environment: development
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # Reutilizamos el SHA del job build-and-push vía needs (no recalculamos el SHA_ID)
+      - name: Set Short SHA from build job
+        run: echo "SHA_SHORT=${{ needs.build-and-push.outputs.sha_short }}" >> $GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS Context - Mensaje
+        run: |
+          echo "Ingresando al AKS: ${{ vars.AKS_CLUSTER_NAME }}"
+
+      # Conectarse al clúster de AKS usando el parámetro oficial de suscripción
+      - name: Set AKS Context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ vars.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
+          subscription: ${{ secrets.SUBSCRIPTION_ID }}
+
+      # Crear o actualizar los secretos dentro de Kubernetes de forma segura
+      - name: "Create Kubernetes Secrets"
+        run: |
+          echo "Creando las variables de entorno que serán usadas por la app .NET"
+          echo "ConnectionStrings__DefaultConnection:...."
+          echo "ConnectionStrings__AzureStorage:...."
+          echo "JWT__JWTKey...."
+          
+          kubectl create secret generic backend-secrets \
+            --from-literal=db-connection-string="${{ secrets.DB_CONNECTION_STRING }}" \
+            --from-literal=storage-connection-string="${{ secrets.STORAGE_CONNECTION_STRING }}" \
+            --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: "Customize K8s Manifest"
+        run: |
+          echo "Inyectando el nombre de los PODS y Container: ${{ env.APP_NAME_CUSTOM }}"
+          sed -i "s|__APP_NAME__|${{ env.APP_NAME_CUSTOM }}|g" k8s/deployment.yml
+
+          echo "Inyectando la imagen del ACR con SHA: ${{ env.SHA_SHORT }}"
+          sed -i 's|__IMAGE_PLACEHOLDER__|${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}|g' k8s/deployment.yml
+      
+      - name: ✅ Deploy to AKS Cluster
+        run: |
+          echo "Desplegando a AKS ${{ vars.AKS_CLUSTER_NAME }} con el archivo K8s actualizado"
+          kubectl apply -f k8s/deployment.yml

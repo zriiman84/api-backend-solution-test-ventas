@@ -165,66 +165,27 @@ Antes de registrar empleados.
   - Se valida que el detalle se haya registrado en la BD con la misma cantidad de elementos solicitados.
   - Se reduce el stock de los productos adquiridos en la venta.
 
-## ☁️ Infraestructura como Código (Terraform)
-
-La solución incluye automatización de infraestructura mediante Terraform.
-
-📂 Estructura Terraform
-
-```
-iac_terraform/
-│
-├── environments/
-│   ├── dev/
-│   └── prod/
-│
-├── modules/
-│   ├── database/
-│   ├── networking/
-│   ├── storage/
-│   └── kubernetes/
-│
-└── scripts/
-```
-
-**Recursos Aprovisionados**
-
-✅ Base de Datos
-- Azure SQL Server 
-- Azure SQL Database
-
-✅ Storage Account
-- Azure Storage Account 
-- Preparado para almacenamiento de archivos, logs y backups
-
-✅ Modularización
-Separación por módulos reutilizables:
-- database 
-- networking 
-- storage 
-- kubernetes
-
-✅ Multiambiente
-Separación entre:
-- dev 
-- prod
-
 ## 🌿 Estrategia GitFlow - Modelo de ramas (git branching)
 
 **main**
 - Código estable en producción 
-- Cada despliegue a producción viene de `main`
-- Versionado:
+- Un workflow de CI/CD para producción proviene de un merge/push en esta rama.
+- Versionado
 
 **develop**
-- Rama de integración 
-- Base para releases futuras 
-- Deploys a staging
+- Rama de integración para desarrollo
+- Un workflow de CI/CD para dev proviene de un merge/push en esta rama.
+- Pull Request a `qa` cuando están listos los cambios.
+
+**qa**
+- Rama de integración para qa
+- Un workflow de CI/CD para qa proviene de un merge/push en esta rama.
+- Pull Request a `main` cuando están listos los cambios.
   
 **feature/nombre**
 - Nuevas funcionalidades 
-- Nacen desde develop 
-- Merge mediante Pull Request a `develop` cuando están listas
+- Nacen desde develop (git pull origin develop)
+- Pull Request a `develop` cuando están listos los cambios.
   
 **release/version**
 - Cuando `develop` está listo para release.
