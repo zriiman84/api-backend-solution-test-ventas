@@ -9,28 +9,67 @@ env:
 
 jobs:
   # ==========================================
-  # FASE 1: VERIFICACIÓN DEL ARTEFACTO (CI)
+  # FASE 1: RECUPERACIÓN DEL SHA CANDIDATO
+  # ==========================================
+  # En lugar de usar github.sha (que corresponde al merge commit de qa, no al build original),
+  # leemos el tag "release-candidate" que fue creado por el workflow de develop.
+  # Ese tag siempre apunta al commit exacto con el que se construyó y subió la imagen al ACR.
+  
+  resolve-candidate-sha:
+    name: "[CI] Resolve Candidate SHA"
+    environment: qa
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Necesario para que GITHUB_TOKEN pueda leer tags del repositorio
+
+    # Exponemos el SHA recuperado para que todos los jobs siguientes lo consuman
+    outputs:
+      sha_short: ${{ steps.get_sha.outputs.sha_short }}
+
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para leer tags de git
+
+      # Leemos el SHA del commit al que apunta el tag "release-candidate"
+      # Este tag fue creado/actualizado por el workflow de develop tras el build exitoso
+      - name: 🔍 Get SHA from release-candidate tag
+        id: get_sha
+        run: |
+          # Verificamos que el tag exista antes de proceder
+          if ! git ls-remote --tags origin | grep -q "refs/tags/release-candidate"; then
+            echo "::error::El tag 'release-candidate' no existe. Asegúrate de que el workflow de develop se haya ejecutado correctamente antes de promover a QA."
+            exit 1
+          fi
+
+          # Obtenemos el commit al que apunta el tag 'release-candidate' 
+          SHA_COMPLETO=$(git rev-list -n 1 refs/tags/release-candidate)
+          SHA_CORTO="${SHA_COMPLETO:0:7}"
+
+          echo "SHA completo del commit asociado al artefacto del ACR : $SHA_COMPLETO"
+          echo "SHA corto del commit - TAG del artefacto del ACR: $SHA_CORTO"
+          echo "SHA del merge actual en QA : ${GITHUB_SHA:0:7} (este es un commit nuevo generado por el PR a rama 'qa')"
+
+          echo "sha_short=$SHA_CORTO" >> $GITHUB_OUTPUT
+          echo "SHA_SHORT=$SHA_CORTO" >> $GITHUB_ENV
+
+  # ==========================================
+  # FASE 2: VERIFICACIÓN DEL ARTEFACTO EN ACR
   # ==========================================
   verify-artifact:
     name: "[CI] Verify ACR Image"
+    needs: resolve-candidate-sha
     environment: qa
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
-        
-      # Obtener el SHA-ID CORTO del commit
-      - name: Set Short SHA
-        #run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
-        run: echo "SHA_SHORT=${GITHUB_SHA:0:7}" >> $GITHUB_ENV  #Obtiene los primero 7 caracteres de SHA-ID del commit
 
-      - name: 🖥 Mostrar información del runner
-        run: |
-          echo "Sistema operativo: $(uname -a)"
-          echo "Directorio actual: $(pwd)"
-          echo "Archivos en el repo:"
-          ls -la
+      # Inyectamos el SHA resuelto en el entorno de este job
+      - name: Set Candidate SHA
+        run: echo "SHA_SHORT=${{ needs.resolve-candidate-sha.outputs.sha_short }}" >> $GITHUB_ENV
 
       - name: Azure Login
         uses: azure/login@v2
@@ -42,62 +81,55 @@ jobs:
           echo "Ingresando al servidor ACR: ${{ vars.ACR_LOGIN_SERVER }}"
           az acr login --name ${{ vars.ACR_NAME }}
 
-      # Buscamos si la etiqueta corta (ej: "a1b2c3d") existe en tu repositorio del ACR
       - name: 🔍 Verificar la existencia de la imagen en el ACR
         run: |
           IMAGE_TAG="${{ env.SHA_SHORT }}"
           REPO_NAME="sales-api"
           
-          echo "Buscando la etiqueta $IMAGE_TAG en el repositorio $REPO_NAME..."
+          echo "Buscando el tag '$IMAGE_TAG' en el repositorio '$REPO_NAME' del ACR..."
           
-          # Consultamos al CLI de Azure si existe el tag, devolviendo un booleano
-          EXISTS=$(az acr repository show-tags --name ${{ vars.ACR_NAME }} --repository $REPO_NAME --query "contains(@, '$IMAGE_TAG')")
+          EXISTS=$(az acr repository show-tags \
+            --name ${{ vars.ACR_NAME }} \
+            --repository $REPO_NAME \
+            --query "contains(@, '$IMAGE_TAG')")
           
           if [ "$EXISTS" = "false" ]; then
-            echo "::error::La imagen con el TAG $IMAGE_TAG NO existe en el ACR. Debes pasar primero por la rama develop."
+            echo "::error::La imagen con el TAG '$IMAGE_TAG' NO existe en el ACR."
+            echo "::error::Verifica que el workflow de develop se completó correctamente y que el tag 'release-candidate' apunta al commit correcto."
             exit 1
           else
-            echo "¡Éxito! La imagen existe. Procediendo al despliegue en QA."
+            echo "✅ ¡Éxito! La imagen '$REPO_NAME:$IMAGE_TAG' existe en el ACR. Procediendo al despliegue en QA."
           fi
 
   # ==========================================
-  # FASE 2: APROBACIÓN PARA DESPLIEGUE EN QA
+  # FASE 3: APROBACIÓN PARA DESPLIEGUE EN QA
   # ==========================================
   approval-qa:
     name: "Approval CD in QA"
-    needs: verify-artifact  # Exige que la validación del paso anterior sea exitosa
+    needs: verify-artifact
     environment:
       name: approval-qa
     runs-on: ubuntu-latest
     steps:
-      - name: Approval DEV
+      - name: Approval QA
         run: echo "Esperando aprobación para desplegar a QA"
-        
+  
   # ==========================================
-  # FASE 3: DESPLIEGUE CONTINUO (CD - QA)
+  # FASE 4: DESPLIEGUE CONTINUO (CD - QA)
   # ==========================================
   deploy-to-qa:
     name: "[CD] Deploy to AKS QA"
-    needs: approval-qa
-    #needs: verify-artifact # Exige que la validación del paso anterior sea exitosa
-    environment: qa        # GitHub inyectará automáticamente los secretos del entorno QA
+    needs: [resolve-candidate-sha, approval-qa]
+    environment: qa
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
-        
-      # Obtener el SHA-ID CORTO del commit
-      - name: Set Short SHA
-        #run: echo "SHA_SHORT=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_ENV
-        run: echo "SHA_SHORT=${GITHUB_SHA:0:7}" >> $GITHUB_ENV  #Obtiene los primero 7 caracteres de SHA-ID del commit
 
-      - name: 🖥 Mostrar información del runner
-        run: |
-          echo "Sistema operativo: $(uname -a)"
-          echo "Directorio actual: $(pwd)"
-          echo "Archivos en el repo:"
-          ls -la
+      # Recuperamos el SHA resuelto desde el primer job (no recalculamos)
+      - name: Set Candidate SHA
+        run: echo "SHA_SHORT=${{ needs.resolve-candidate-sha.outputs.sha_short }}" >> $GITHUB_ENV
 
       - name: Azure Login
         uses: azure/login@v2
@@ -114,12 +146,12 @@ jobs:
         with:
           resource-group: ${{ vars.AZURE_RESOURCE_GROUP }}
           cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
-          subscription: ${{ secrets.SUBSCRIPTION_ID }} # <-- SOLUCIÓN NATIVA: Le dice al AKS exactamente dónde buscar sin usar comandos Bash
+          subscription: ${{ secrets.SUBSCRIPTION_ID }}
 
-      # Crear o actualizar los secretos dentro de Kubernetes de forma segura para QA
+      # Crear o actualizar los secretos dentro de Kubernetes de forma segura
       - name: "Create Kubernetes Secrets"
         run: |
-          echo "Creando las variables de entorno que serán usados por la app .NET"
+          echo "Creando las variables de entorno que serán usadas por la app .NET"
           echo "ConnectionStrings__DefaultConnection:...."
           echo "ConnectionStrings__AzureStorage:...."
           echo "JWT__JWTKey...."
@@ -130,18 +162,15 @@ jobs:
             --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      #  Personalizar dinámicamente el Manifiesto de K8s (Nombre de la App e Imagen)
       - name: "Customize K8s Manifest"
         run: |
-          # Reemplaza todos los marcadores __APP_NAME__ con el nombre personalizado
-          echo "Inyectando el nombre de los PODS y Conatiner: ${{ env.APP_NAME_CUSTOM }}"
+          echo "Inyectando el nombre de los PODS y Container: ${{ env.APP_NAME_CUSTOM }}"
           sed -i "s|__APP_NAME__|${{ env.APP_NAME_CUSTOM }}|g" k8s/deployment.yml
 
-          # Inyecta la imagen existente reutilizando el mismo SHA que vino de develop
-          echo "Inyectando el nombre de la imagen del ACR"
+          echo "Inyectando la imagen del ACR con SHA: ${{ env.SHA_SHORT }}"
           sed -i 's|__IMAGE_PLACEHOLDER__|${{ vars.ACR_LOGIN_SERVER }}/sales-api:${{ env.SHA_SHORT }}|g' k8s/deployment.yml
 
-      # 4. Desplegar en AKS el ambiente de QA
-      - name: "Deploy to AKS Cluster"
+      - name: ✅ Deploy to AKS Cluster
         run: |
+          echo "Desplegando a AKS ${{ vars.AKS_CLUSTER_NAME }} con el archivo K8s actualizado"
           kubectl apply -f k8s/deployment.yml
