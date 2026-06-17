@@ -25,7 +25,7 @@ spec:
           #Nombre de mi imagen que se obtendrá del ACR >> se enviará desde el archivo 'backend-cd.yml'
           image: __IMAGE_PLACEHOLDER__   
           ports:
-            - containerPort: 80   #La app web esuchará por el puerto 80
+            - containerPort: 8080   #La app web esuchará por el puerto 8080. Desde NET 8 el puerto por default es 8080 y ya no 80.
           
           #Bloque similar al enviroment del docker.compose.yaml
           #Indica: ir al almacén del clúster llamado <backend-secrets> y extrae el valor que guardé bajo la llave <key>
@@ -64,7 +64,7 @@ metadata:
 spec:
   type: LoadBalancer  #Créame un Azure Load Balancer y asígname una IP Pública
   ports:
-    - port: 8080      #Puerto externo. El Frontend llamará a La URL final de tu API - ejemplo: http://20.225.15.84:8080/api/productos.
-      targetPort: 80  #Puerto interno para redirigir el tráfico entre contenedores
+    - port: 8080      #Puerto externo. El Frontend llamará a La URL final de tu API - ejemplo: http://20.225.15.84:<puerto>/api/productos.
+      targetPort: 8080  #Puerto interno para redirigir el tráfico entre contenedores. Debe conincidir con containerPort
   selector:
     app: __APP_NAME__ #Indica a dónde enviar el tráfico. Balanceará inteligentemente distribuyéndola en un 50% y 50% entre las 2 réplicas de tu API 
