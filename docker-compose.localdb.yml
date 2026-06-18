@@ -1,0 +1,32 @@
+# Overlay para correr el backend contra un SQL Server LOCAL (sin Azure).
+# Sustituye la cadena de conexión por una local y añade el contenedor sqlserver.
+#
+# USO (junto con la observabilidad):
+#   docker compose -f docker-compose.yaml -f docker-compose.observability.yml -f docker-compose.localdb.yml up -d --build
+#
+# La BD se crea sola (MigrateAsync) y se puebla con los DataSeeders al arrancar el API.
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver-local
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=Local_Dev_Pass123!
+      - MSSQL_PID=Developer
+      - MSSQL_MEMORY_LIMIT_MB=2048      # capamos memoria para no ahogar WSL
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    restart: unless-stopped
+
+  api_sales:
+    # Override de la cadena de conexión: apunta al contenedor sqlserver local.
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=tcp:sqlserver,1433;Initial Catalog=SalesStoreDBDev;User ID=sa;Password=Local_Dev_Pass123!;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=True;Connection Timeout=30;
+    depends_on:
+      - sqlserver
+
+volumes:
+  sqlserver-data:

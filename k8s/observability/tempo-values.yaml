@@ -1,0 +1,27 @@
+# Values para el chart grafana/tempo (modo monolítico / single binary).
+# Recibe trazas OTLP desde el OTel Collector (tempo.observability.svc:4317).
+
+tempo:
+  # Receptor OTLP gRPC (al que exporta el collector).
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+  retention: 168h   # 7 días
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { cpu: 500m, memory: 1Gi }
+
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClassName: managed-csi
