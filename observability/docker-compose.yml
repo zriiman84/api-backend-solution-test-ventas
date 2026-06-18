@@ -1,0 +1,129 @@
+name: observability
+
+# Stack local de observabilidad (3 pilares) para el API solution-test-ventas.
+#
+#   API .NET ──OTLP(4317)──► otel-collector ──► prometheus (métricas, scrape :8889)
+#                                          ├──► tempo      (trazas)
+#                                          └──► loki       (logs)
+#                                                  todo visualizado en grafana :3000
+#
+# El API se conecta desde su propio compose uniéndose a la red externa "observability"
+# (ver ../docker-compose.observability.yml).
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.127.0
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC  (lo usa el API)
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Métricas de la app reexpuestas para Prometheus
+    networks: [observability]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: obs-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'   # recibe métricas RED generadas por Tempo
+      - '--enable-feature=exemplar-storage'    # guarda exemplars (link métrica -> traza)
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [observability]
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.10.7
+    container_name: obs-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"   # API de consulta de Tempo
+    networks: [observability]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: obs-loki
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks: [observability]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.6.15
+    container_name: obs-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus, tempo, loki]
+    networks: [observability]
+    restart: unless-stopped
+
+  # Métricas de infraestructura del host (CPU/RAM/disco/red) — equivalente al lab
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: obs-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks: [observability]
+    restart: unless-stopped
+
+  # Enrutamiento/agrupación/silenciado de alertas — equivalente al lab
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: obs-alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    networks: [observability]
+    restart: unless-stopped
+
+networks:
+  observability:
+    name: observability
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  tempo-data:
+  loki-data:
+  grafana-data:
+  alertmanager-data:
