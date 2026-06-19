@@ -1,0 +1,57 @@
+# Values para prometheus-community/kube-prometheus-stack (Prometheus + Grafana + Alertmanager).
+
+prometheus:
+  prometheusSpec:
+    # Permite que el OTel Collector haga remote-write de las métricas de la app.
+    enableRemoteWriteReceiver: true
+    retention: 7d
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits:   { cpu: "1",  memory: 2Gi }
+    # Persistencia (ajustar storageClassName al de tu AKS, p.ej. "managed-csi").
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          # storageClassName: managed-csi
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+
+# Alertmanager ya viene incluido en este chart.
+alertmanager:
+  enabled: true
+
+grafana:
+  # CAMBIAR por un secreto real (o usar existingSecret / Key Vault).
+  adminPassword: "CHANGE_ME_admin"
+  persistence:
+    enabled: true
+    size: 5Gi
+    # storageClassName: managed-csi
+  # Datasources extra: Tempo (trazas) y Loki (logs). Prometheus ya es el default del chart.
+  additionalDataSources:
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability.svc:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          filterByTraceID: true
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc:3100
+      jsonData:
+        derivedFields:
+          - name: TraceID
+            matcherRegex: '"?trace_?id"?[:=]"?(\w+)"?'
+            url: '${__value.raw}'
+            datasourceUid: tempo
