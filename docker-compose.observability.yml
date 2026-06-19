@@ -1,0 +1,26 @@
+# Overlay de Docker Compose para conectar el API al stack de observabilidad local.
+#
+# Conecta api_sales a la red externa "observability" (creada por observability/docker-compose.yml)
+# y le inyecta las variables OTEL para que exporte métricas+trazas+logs al Collector.
+#
+# USO:
+#   1) Levantar el stack de observabilidad:
+#        cd observability && docker compose up -d
+#   2) Levantar el API ya conectado (necesita un .env con credenciales de Azure SQL):
+#        docker compose -f docker-compose.yaml -f docker-compose.observability.yml up -d --build
+#
+# El API quedará en http://localhost:8080 y enviará telemetría a otel-collector:4317.
+
+services:
+  api_sales:
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_SERVICE_NAME=api-solution-test-ventas
+    networks:
+      - default
+      - observability
+
+networks:
+  observability:
+    external: true

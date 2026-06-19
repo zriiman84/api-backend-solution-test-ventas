@@ -1,0 +1,96 @@
+groups:
+  # ===== Aplicación (RED) — métricas OpenTelemetry del API .NET =====
+  - name: api_alerts
+    interval: 30s
+    rules:
+      # Tasa de errores 5xx alta
+      - alert: HighApiErrorRate
+        expr: |
+          100 * sum(rate(http_server_request_duration_seconds_count{service_name="api-solution-test-ventas",http_response_status_code=~"5.."}[5m]))
+          / clamp_min(sum(rate(http_server_request_duration_seconds_count{service_name="api-solution-test-ventas"}[5m])), 1) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Tasa de errores 5xx alta en el API"
+          description: "El API tiene {{ $value | humanize }}% de respuestas 5xx (umbral 5%) durante más de 2m."
+
+      # Latencia p95 alta
+      - alert: HighApiLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name="api-solution-test-ventas"}[5m]))) > 1
+        for: 2m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Latencia p95 alta en el API"
+          description: "La latencia p95 es {{ $value | humanize }}s (umbral 1s) durante más de 2m."
+
+  # ===== Infraestructura (Node Exporter) — equivalente al laboratorio =====
+  - name: infra_alerts
+    interval: 30s
+    rules:
+      # Alto uso de CPU
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: cpu
+        annotations:
+          summary: "CPU alto en {{ $labels.instance }}"
+          description: "Uso de CPU en {{ $value | humanize }}% durante más de 2m."
+
+      # CPU crítico
+      - alert: CriticalCPUUsage
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 1m
+        labels:
+          severity: critical
+          component: cpu
+        annotations:
+          summary: "🔥 CPU CRÍTICO en {{ $labels.instance }}"
+          description: "CPU en {{ $value | humanize }}%. ¡Acción inmediata!"
+
+      # Alto uso de memoria
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: memory
+        annotations:
+          summary: "Memoria alta en {{ $labels.instance }}"
+          description: "Uso de memoria en {{ $value | humanize }}%."
+
+      # Espacio en disco bajo
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat|overlay"} / node_filesystem_size_bytes) * 100 < 15
+        for: 10m
+        labels:
+          severity: warning
+          component: disk
+        annotations:
+          summary: "Disco bajo en {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Queda {{ $value | humanize }}% libre en la partición."
+
+  # ===== Disponibilidad =====
+  - name: availability_alerts
+    interval: 30s
+    rules:
+      # Target caído (collector, node-exporter, prometheus, alertmanager)
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: availability
+        annotations:
+          summary: "Target {{ $labels.job }} está DOWN"
+          description: "{{ $labels.job }} ({{ $labels.instance }}) no responde al scraping desde hace más de 1m."
