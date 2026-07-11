@@ -64,19 +64,22 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 ## Opción B — Stack self-hosted en AKS (idéntico a tu local, control total)
 
-Reproduce en el clúster lo que ya tienes en `docker-compose.yml`, vía Helm:
+Reproduce en el clúster lo que ya tienes en `docker-compose.yml`, vía Helm. Ya está listo y
+parametrizado en **`k8s/observability/`** (usa `install.sh`); el esquema es:
 ```bash
-# Prometheus + Grafana
-helm install kube-prometheus prometheus-community/kube-prometheus-stack -n observability --create-namespace
-# Trazas
-helm install tempo grafana/tempo -n observability
+# Prometheus + Grafana + Alertmanager
+helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n observability --create-namespace
 # Logs
 helm install loki grafana/loki -n observability
-# Collector
-helm install otel-collector open-telemetry/opentelemetry-collector -n observability -f otel-values.yaml
+# Trazas (Jaeger all-in-one, como el lab)
+kubectl apply -f jaeger.yaml
+# Logs: Promtail (DaemonSet) -> Loki
+helm install promtail grafana/promtail -n observability
+# Collector (métricas -> Prometheus, trazas -> Jaeger)
+helm install otel-collector open-telemetry/opentelemetry-collector -n observability -f otel-collector-values.yaml
 ```
-Ventaja: mismas herramientas que aprendiste; portable a cualquier nube. Desventaja: tú
-mantienes el almacenamiento y la disponibilidad.
+Ventaja: **las mismas herramientas del laboratorio** (Jaeger + Loki/Promtail); portable a
+cualquier nube. Desventaja: tú mantienes el almacenamiento y la disponibilidad.
 
 ---
 
