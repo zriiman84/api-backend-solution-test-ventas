@@ -1,0 +1,56 @@
+# Configuración del OpenTelemetry Collector.
+# Recibe OTLP del API y reparte a los 3 backends: Prometheus, Tempo y Loki.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+  # Añade metadatos útiles a todas las señales
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 5s
+
+exporters:
+  # MÉTRICAS -> endpoint Prometheus que el server de Prometheus scrapea (:8889)
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true   # convierte atributos de recurso (service.name, etc.) en labels
+
+  # TRAZAS -> Tempo (OTLP gRPC)
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # LOGS -> Loki (endpoint nativo OTLP de Loki 3.x)
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+  # Útil para depurar lo que llega al collector (se ve en `docker logs otel-collector`)
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888   # métricas internas del propio collector
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [prometheus]
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [otlp/tempo, debug]
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [otlphttp/loki]

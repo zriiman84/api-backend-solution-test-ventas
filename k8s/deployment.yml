@@ -50,6 +50,17 @@ spec:
                 secretKeyRef:
                   name: backend-secrets
                   key: jwt-secret
+            # --- Observabilidad (OpenTelemetry) ---
+            # Apunta al OTel Collector desplegado en el namespace 'observability' (ver k8s/observability/).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector-opentelemetry-collector.observability.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: "api-solution-test-ventas"
+            # Etiqueta el ambiente (dev/qa/prd) reutilizando ASPNETCORE_ENVIRONMENT definido arriba.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=$(ASPNETCORE_ENVIRONMENT)"
 ---
 apiVersion: v1
 kind: Service

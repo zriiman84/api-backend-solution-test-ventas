@@ -1,0 +1,41 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'instance']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 3h
+  routes:
+    # Críticas: notificar rápido y repetir más seguido
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 5s
+      repeat_interval: 30m
+    # Warnings
+    - match:
+        severity: warning
+      receiver: 'warning'
+      repeat_interval: 2h
+
+receivers:
+  - name: 'default'
+  # En producción: reemplazar webhooks por Slack / Teams / PagerDuty / Email
+  - name: 'critical'
+    webhook_configs:
+      - url: 'http://example.com/webhook/critical'
+        send_resolved: true
+  - name: 'warning'
+    webhook_configs:
+      - url: 'http://example.com/webhook/warning'
+        send_resolved: true
+
+# Si hay una alerta crítica, silencia la warning del mismo alertname+instancia
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']

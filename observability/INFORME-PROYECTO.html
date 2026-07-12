@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Informe del Proyecto — Observabilidad solution-test-ventas</title>
+<style>
+  :root { --azul:#1f6feb; --verde:#2da44e; --rojo:#cf222e; --gris:#57606a; --bg:#ffffff; --code:#f6f8fa; --bd:#d0d7de; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Ubuntu, sans-serif; line-height: 1.6; color: #1f2328; max-width: 980px; margin: 0 auto; padding: 0 24px 80px; }
+  h1 { font-size: 2.1em; border-bottom: 3px solid var(--azul); padding-bottom: .3em; margin-top: 1.2em; }
+  h2 { font-size: 1.55em; border-bottom: 1px solid var(--bd); padding-bottom: .25em; margin-top: 2em; color: #0b2e63; }
+  h3 { font-size: 1.2em; margin-top: 1.5em; color: #0b2e63; }
+  code { background: var(--code); padding: .15em .4em; border-radius: 5px; font-family: Consolas, monospace; font-size: .9em; }
+  pre { background: var(--code); border: 1px solid var(--bd); border-radius: 8px; padding: 14px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .92em; }
+  th, td { border: 1px solid var(--bd); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f0f4f9; }
+  .ok { color: var(--verde); font-weight: 600; }
+  .bad { color: var(--rojo); font-weight: 600; }
+  .warn { color: #9a6700; font-weight: 600; }
+  .card { background: #f6f8fa; border: 1px solid var(--bd); border-left: 5px solid var(--azul); border-radius: 8px; padding: 12px 18px; margin: 1.2em 0; }
+  .card.sec { border-left-color: var(--rojo); background: #fff5f5; }
+  .card.tip { border-left-color: var(--verde); background: #f3fbf5; }
+  figure { margin: 1.5em 0; text-align: center; }
+  figure img { max-width: 100%; border: 1px solid var(--bd); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  figcaption { color: var(--gris); font-size: .9em; margin-top: .5em; font-style: italic; }
+  .toc { background: #f6f8fa; border: 1px solid var(--bd); border-radius: 8px; padding: 8px 28px; }
+  .badge { display: inline-block; background: var(--azul); color: #fff; border-radius: 12px; padding: 1px 10px; font-size: .8em; }
+  .arch { background: #0d1117; color: #c9d1d9; padding: 18px; border-radius: 8px; font-family: Consolas, monospace; font-size: .82em; overflow-x: auto; white-space: pre; }
+  .meta { color: var(--gris); }
+  hr { border: none; border-top: 1px solid var(--bd); margin: 2.5em 0; }
+</style>
+</head>
+<body>
+
+<h1>🔭 Informe del Proyecto: Observabilidad de <em>solution-test-ventas</em></h1>
+<p class="meta"><strong>Proyecto:</strong> solution-test-ventas (full-stack) &nbsp;•&nbsp; <strong>Fecha:</strong> 18 de junio de 2026 &nbsp;•&nbsp; <strong>Alcance:</strong> Instrumentación de observabilidad (3 pilares) del backend, integración front↔back y plan de despliegue a la nube.</p>
+
+<div class="card">
+<strong>Resumen ejecutivo.</strong> Se instrumentó el backend (.NET 10) con <strong>OpenTelemetry</strong> para emitir las tres señales de observabilidad (métricas, trazas y logs), y se montó un stack local completo (<strong>OpenTelemetry Collector → Prometheus + Tempo + Loki → Grafana</strong>) con <strong>alertas (AlertManager)</strong> y <strong>métricas de host (Node Exporter)</strong>. Se conectó el frontend Angular al backend y se verificó, de punta a punta, que el tráfico real de la app genera métricas, trazas y logs visibles y correlacionados en Grafana. Todo corre localmente y reproducible vía Docker Compose. Se incluye además el plan de despliegue a la nube (backend → Azure/AKS, frontend → AWS) y los riesgos de seguridad a resolver antes de producción.
+</div>
+
+<h2>Índice</h2>
+<div class="toc">
+<ol>
+<li><a href="#arquitectura">Arquitectura y componentes</a></li>
+<li><a href="#diseno">Diseño de observabilidad (los 3 pilares + alertas)</a></li>
+<li><a href="#pasos">Paso a paso de lo implementado</a></li>
+<li><a href="#evidencia">Evidencia y verificación (capturas)</a></li>
+<li><a href="#levantar">Cómo levantar todo localmente</a></li>
+<li><a href="#nube">Despliegue a la nube (Azure + AWS)</a></li>
+<li><a href="#seguridad">Riesgos de seguridad y pendientes</a></li>
+</ol>
+</div>
+
+<hr>
+<h2 id="arquitectura">1. Arquitectura y componentes</h2>
+<p>El proyecto es un monorepo bajo <code>proyecto integrador/</code> con cuatro repositorios:</p>
+<table>
+<tr><th>Componente</th><th>Stack</th><th>Despliegue destino</th></tr>
+<tr><td><strong>Backend</strong> (<code>api-backend-solution-test-ventas</code>)</td><td>ASP.NET Core <strong>.NET 10</strong> (C#), EF Core → Azure SQL, JWT, Serilog</td><td>Azure AKS (Kubernetes)</td></tr>
+<tr><td><strong>Frontend</strong> (<code>online-store-frontend</code>)</td><td><strong>Angular 20</strong> servido con nginx</td><td>AWS (S3 + CloudFront)</td></tr>
+<tr><td><strong>Infra backend</strong> (<code>iac-terraform-backend-test-ventas</code>)</td><td>Terraform (azurerm)</td><td>Azure (dev/qa/prd)</td></tr>
+<tr><td><strong>Infra frontend</strong> (<code>online-store-infra</code>)</td><td>Terraform (AWS)</td><td>AWS (staging/qa/production)</td></tr>
+</table>
+
+<p>El flujo completo de la aplicación y la telemetría queda así:</p>
+<div class="arch">navegador ──HTTP──▶ nginx (Angular SPA, :80)
+                        │  proxy /api
+                        ▼
+                   API .NET (api_sales, :80)  ──▶  SQL Server
+                        │  OTLP :4317 (OpenTelemetry)
+                        ▼
+              OpenTelemetry Collector ──▶ Prometheus  (métricas)  ┐
+                                      ├──▶ Tempo       (trazas)    ├──▶ Grafana (:3000)
+                                      └──▶ Loki        (logs)      ┘
+                        ▲
+              AlertManager ◀── Prometheus (reglas)        Node Exporter ──▶ Prometheus (métricas host)</div>
+
+<h3>Versiones del stack de observabilidad</h3>
+<table>
+<tr><th>Pieza</th><th>Imagen</th><th>Rol</th></tr>
+<tr><td>OpenTelemetry Collector</td><td><code>otel/opentelemetry-collector-contrib:0.127.0</code></td><td>Recibe OTLP y reparte a los 3 backends</td></tr>
+<tr><td>Prometheus</td><td><code>prom/prometheus:v2.55.1</code></td><td>Métricas + evaluación de reglas</td></tr>
+<tr><td>Tempo</td><td><code>grafana/tempo:2.10.7</code></td><td>Almacén de trazas</td></tr>
+<tr><td>Loki</td><td><code>grafana/loki:3.4.2</code></td><td>Almacén de logs</td></tr>
+<tr><td>Grafana</td><td><code>grafana/grafana:11.6.15</code></td><td>Visualización y correlación</td></tr>
+<tr><td>AlertManager</td><td><code>prom/alertmanager:v0.27.0</code></td><td>Enrutado/agrupado/silenciado de alertas</td></tr>
+<tr><td>Node Exporter</td><td><code>prom/node-exporter:v1.7.0</code></td><td>Métricas de host (CPU/RAM/disco)</td></tr>
+<tr><td>SQL Server (local)</td><td><code>mcr.microsoft.com/mssql/server:2022-latest</code></td><td>BD local para desarrollo</td></tr>
+</table>
+
+<hr>
+<h2 id="diseno">2. Diseño de observabilidad (los 3 pilares + alertas)</h2>
+<p>Se eligió <strong>OpenTelemetry</strong> como estándar de instrumentación y un <strong>OTel Collector</strong> como hub central. Ventaja clave: el código de la app no depende del backend de telemetría; solo exporta OTLP. Cambiar de destino (local hoy, Azure mañana) es solo cambiar a dónde apunta el Collector.</p>
+<table>
+<tr><th>Pilar</th><th>Cómo se genera</th><th>Dónde se ve</th></tr>
+<tr><td><strong>Métricas</strong></td><td>Instrumentación ASP.NET Core + HttpClient + Runtime .NET (RED: tasa, errores, latencia)</td><td>Prometheus → dashboard RED en Grafana</td></tr>
+<tr><td><strong>Trazas</strong></td><td>ASP.NET Core + HttpClient + EF Core (request → controller → SQL)</td><td>Tempo (Explore en Grafana)</td></tr>
+<tr><td><strong>Logs</strong></td><td>Serilog con sink OTLP (incluye <code>trace_id</code> para correlación)</td><td>Loki (Explore en Grafana)</td></tr>
+</table>
+
+<h3>Alertas (equivalente al laboratorio, adaptado a la app)</h3>
+<p>Reglas en Prometheus, evaluadas y enviadas a AlertManager:</p>
+<ul>
+<li><strong>Aplicación (RED):</strong> <code>HighApiErrorRate</code> (5xx &gt; 5%), <code>HighApiLatencyP95</code> (p95 &gt; 1s).</li>
+<li><strong>Infraestructura (Node Exporter):</strong> <code>HighCPUUsage</code> (&gt;80%), <code>CriticalCPUUsage</code> (&gt;95%), <code>HighMemoryUsage</code> (&gt;85%), <code>DiskSpaceLow</code> (&lt;15%).</li>
+<li><strong>Disponibilidad:</strong> <code>TargetDown</code> (<code>up == 0</code>).</li>
+</ul>
+<p>AlertManager enruta por severidad (<code>critical</code> / <code>warning</code>) y aplica inhibición (una crítica silencia su warning equivalente). El ciclo de vida es <code>Inactive → Pending → Firing → Resolved</code>.</p>
+
+<hr>
+<h2 id="pasos">3. Paso a paso de lo implementado</h2>
+
+<h3>Paso 1 — Instrumentar el backend con OpenTelemetry</h3>
+<p>Se añadieron los paquetes OTel al <code>ApiSolutionTestVentas.Api.csproj</code> y se creó <code>Observability/ObservabilityExtensions.cs</code> que registra métricas y trazas. En <code>Program.cs</code> se llama a <code>builder.AddObservability()</code> y se añade un <em>sink OTLP</em> a Serilog para los logs.</p>
+<pre><code>// ObservabilityExtensions.cs (resumen)
+builder.Services.AddOpenTelemetry()
+  .ConfigureResource(r =&gt; r.AddService("api-solution-test-ventas"))
+  .WithMetrics(m =&gt; m.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation()
+                     .AddRuntimeInstrumentation().AddOtlpExporter())
+  .WithTracing(t =&gt; t.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation()
+                     .AddEntityFrameworkCoreInstrumentation().AddOtlpExporter());</code></pre>
+<p class="meta">Verificado con <code>docker build</code> (no hay SDK de .NET en la máquina; el API compila dentro de Docker). El build quedó verde tras corregir una opción inexistente del paquete beta de EF Core.</p>
+
+<h3>Paso 2 — Stack local de observabilidad</h3>
+<p>En <code>observability/docker-compose.yml</code>: Collector, Prometheus, Tempo, Loki, Grafana (datasources y dashboard RED <strong>provisionados como código</strong>), más Node Exporter y AlertManager. El Collector (<code>otel-collector-config.yaml</code>) recibe OTLP y exporta a los tres backends.</p>
+
+<h3>Paso 3 — Conectar frontend ↔ backend</h3>
+<p>Se unió el frontend a la red Docker compartida <code>observability</code> y se configuró <code>BACKEND_URL=http://api_sales:80</code> (nombre de servicio + puerto <strong>interno 80</strong>, no 8080). nginx hace <code>proxy_pass</code> de <code>/api/</code> al backend.</p>
+
+<h3>Paso 4 — Base de datos local</h3>
+<p>Como el firewall de Azure SQL bloquea la IP local, se añadió un overlay <code>docker-compose.localdb.yml</code> con <strong>SQL Server local</strong>; las migraciones crean el esquema y los seeders lo pueblan al arrancar el API.</p>
+
+<h3>Paso 5 — Alertas y métricas de host</h3>
+<p>Se añadieron AlertManager + Node Exporter + reglas (<code>alert-rules.yml</code>) y se conectó Prometheus a AlertManager. Se demostró el ciclo de una alerta hasta <strong>Firing</strong> y su llegada a AlertManager.</p>
+
+<hr>
+<h2 id="evidencia">4. Evidencia y verificación (capturas)</h2>
+<p>Capturas reales del entorno funcionando (generadas automáticamente con un navegador headless sobre las UIs locales).</p>
+
+<figure><img src="report-assets/app-frontend.png" alt="Frontend"><figcaption>La SPA Angular (frontend) servida por nginx en <code>http://localhost</code>.</figcaption></figure>
+<figure><img src="report-assets/swagger.png" alt="Swagger"><figcaption>API .NET (Swagger) en <code>http://localhost:8080/swagger</code>.</figcaption></figure>
+<figure><img src="report-assets/grafana-dashboard-red.png" alt="Dashboard RED"><figcaption>Dashboard <strong>RED</strong> en Grafana: tasa de requests, % de errores, latencia p50/p95/p99 y runtime .NET, con datos reales del API.</figcaption></figure>
+<figure><img src="report-assets/grafana-tempo-search.png" alt="Trazas Tempo"><figcaption>Trazas del servicio <code>api-solution-test-ventas</code> en Tempo (Explore de Grafana).</figcaption></figure>
+<figure><img src="report-assets/grafana-loki-logs.png" alt="Logs Loki"><figcaption>Logs del API en Loki, correlacionados con sus trazas por <code>trace_id</code>.</figcaption></figure>
+<figure><img src="report-assets/prometheus-targets.png" alt="Targets Prometheus"><figcaption>Targets en Prometheus (Collector, Node Exporter, AlertManager, Prometheus) — todos <span class="ok">UP</span>.</figcaption></figure>
+<figure><img src="report-assets/prometheus-alerts.png" alt="Alertas Prometheus"><figcaption>Reglas de alerta cargadas en Prometheus (app RED + infra + disponibilidad).</figcaption></figure>
+<figure><img src="report-assets/alertmanager.png" alt="AlertManager"><figcaption>AlertManager recibiendo y enrutando alertas.</figcaption></figure>
+
+<div class="card tip">
+<strong>Verificación de punta a punta (confirmada por consultas reales):</strong>
+<ul>
+<li><span class="ok">✔</span> Métricas: <code>http_server_request_duration_seconds_count{service_name="api-solution-test-ventas"}</code> presente en Prometheus.</li>
+<li><span class="ok">✔</span> Trazas: servicio <code>api-solution-test-ventas</code> consultable en Tempo.</li>
+<li><span class="ok">✔</span> Logs: stream <code>{service_name="api-solution-test-ventas"}</code> en Loki.</li>
+<li><span class="ok">✔</span> Conexión: <code>GET /api/...</code> desde nginx llega al backend (respuesta real, no 502).</li>
+<li><span class="ok">✔</span> Alertas: una alerta llegó a <code>Firing</code> y fue recibida por AlertManager (ruta <code>critical</code>).</li>
+</ul>
+</div>
+
+<hr>
+<h2 id="levantar">5. Cómo levantar todo localmente</h2>
+<p class="meta">En esta máquina, los archivos están en Windows y Docker corre en WSL; por el espacio en la ruta se usan symlinks <code>~/sttv</code> (backend) y <code>~/fe</code> (frontend).</p>
+<pre><code># 1) Stack de observabilidad
+cd ~/sttv/observability &amp;&amp; docker compose up -d
+
+# 2) Backend + SQL Server local + observabilidad
+cd ~/sttv &amp;&amp; docker compose \
+  -f docker-compose.yaml \
+  -f docker-compose.observability.yml \
+  -f docker-compose.localdb.yml up -d
+
+# 3) Frontend
+cd ~/fe &amp;&amp; docker compose up -d</code></pre>
+<table>
+<tr><th>UI</th><th>URL</th><th>Credenciales</th></tr>
+<tr><td>Aplicación (frontend)</td><td><code>http://localhost</code></td><td>—</td></tr>
+<tr><td>API (Swagger)</td><td><code>http://localhost:8080/swagger</code></td><td>—</td></tr>
+<tr><td>Grafana</td><td><code>http://localhost:3000</code></td><td>admin / admin</td></tr>
+<tr><td>Prometheus</td><td><code>http://localhost:9090</code></td><td>—</td></tr>
+<tr><td>AlertManager</td><td><code>http://localhost:9093</code></td><td>—</td></tr>
+</table>
+
+<hr>
+<h2 id="nube">6. Despliegue a la nube</h2>
+<p>Cada componente va a una nube distinta. Lo siguiente está basado en los pipelines de CI/CD y la IaC reales (verificado contra los archivos).</p>
+
+<h3>6.1 Backend → Azure / AKS</h3>
+<ul>
+<li><strong>Suscripción:</strong> Azure 02 (<code>b497fd69-…</code>). <strong>Regiones:</strong> dev/qa en <code>westus3</code>, <strong>PRD en <code>centralus</code></strong>.</li>
+<li><strong>Registro de imágenes:</strong> ACR compartido <code>acrsalesstoredmcshared</code> (desplegar primero <code>environments/shared</code>).</li>
+<li><strong>Flujo:</strong> Terraform (shared → dev/qa/prd) → GitHub Actions construye y publica la imagen al ACR → <code>kubectl apply</code> del <code>k8s/deployment.yml</code> (2 réplicas + Service LoadBalancer:8080). Promoción por ramas <code>develop→qa→main</code> con aprobaciones.</li>
+<li><strong>Requiere:</strong> Secrets de GitHub (<code>AZURE_CREDENTIALS</code>, connection strings, JWT), backend remoto de tfstate (hoy comentado), y <code>terraform.tfvars</code> reales.</li>
+</ul>
+
+<h3>6.2 Frontend → AWS (S3 + CloudFront)</h3>
+<ul>
+<li><strong>Cuenta AWS</strong> <code>492094933097</code>, región <code>us-east-1</code>, autenticación <strong>OIDC federado</strong> (sin llaves estáticas).</li>
+<li><strong>Flujo:</strong> Terraform (<code>online-store-infra</code>) provisiona S3 privado + CloudFront (OAC) + SSM param + CloudWatch. GitHub Actions hace <code>build → s3 sync → cloudfront invalidation</code>. <code>production</code> requiere aprobación.</li>
+<li>La URL del backend se inyecta en build desde SSM (<code>/online-store/{env}/backend-url</code>).</li>
+</ul>
+
+<h3>6.3 Observabilidad en producción</h3>
+<p>El backend ya emite OTLP; falta la plataforma. Dos opciones:</p>
+<ul>
+<li><strong>Opción A (recomendada):</strong> Azure nativo — Application Insights + Azure Monitor managed Prometheus + Azure Managed Grafana; habilitar <code>monitor_metrics{}</code> en el AKS. Menos mantenimiento.</li>
+<li><strong>Opción B:</strong> self-hosted en AKS — kube-prometheus-stack + Tempo + Loki + Collector vía Helm (mismas herramientas que en local).</li>
+</ul>
+<p>En ambos casos hay que añadir a <code>k8s/deployment.yml</code> las variables <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, <code>OTEL_SERVICE_NAME</code> y desplegar un OTel Collector en el clúster (namespace <code>observability</code>).</p>
+
+<hr>
+<h2 id="seguridad">7. Riesgos de seguridad y pendientes (resolver ANTES de producción)</h2>
+<div class="card sec">
+<ol>
+<li class="bad">Credenciales en texto plano en <code>Acciones_CI_CD.txt</code> (clientSecret del Service Principal, contraseña SQL, account keys de Storage) → <strong>rotar todo</strong> y mover a GitHub Secrets + Azure Key Vault.</li>
+<li class="bad">Service Principal con rol <strong>Owner</strong> sobre toda la suscripción → reducir a Contributor por Resource Group.</li>
+<li class="bad">Azure SQL y Storage con <strong>acceso de red público</strong> habilitado en QA/PRD → restringir a private endpoints.</li>
+<li class="bad">API expuesto por <strong>HTTP plano sin TLS</strong> (IPs públicas :8080) → tokens JWT viajan en claro, y además bloquea la integración HTTPS del frontend (mixed content). Exponer por Ingress + certificado.</li>
+<li class="warn">CORS cross-cloud: el backend debe permitir explícitamente el origen del frontend en CloudFront (hoy usa <code>AllowAnyOrigin()</code>, conviene acotarlo).</li>
+<li class="warn">tfstate local (backend remoto comentado) → riesgo de corrupción/condición de carrera.</li>
+<li class="warn"><code>k8s/deployment.yml</code>: <code>ASPNETCORE_ENVIRONMENT</code> hardcodeado a <code>Development</code> y sin <code>readinessProbe</code>/<code>livenessProbe</code> ni HPA.</li>
+</ol>
+</div>
+
+<h3>Pendientes de observabilidad</h3>
+<ul>
+<li>Llevar el stack a producción (Opción A o B) y añadir las variables OTel al deployment de AKS.</li>
+<li>Instrumentar el <strong>frontend</strong> (RUM con OpenTelemetry JS) para trazas extremo a extremo navegador→API.</li>
+<li>Definir umbrales de alerta de negocio y receptores reales (Slack/Teams/PagerDuty) en AlertManager.</li>
+</ul>
+
+<hr>
+<p class="meta">Informe generado para el proyecto solution-test-ventas. Todos los datos y capturas provienen del entorno real montado y verificado localmente. Los nombres de recursos cloud provienen de los archivos de CI/CD e IaC del proyecto.</p>
+
+</body>
+</html>
