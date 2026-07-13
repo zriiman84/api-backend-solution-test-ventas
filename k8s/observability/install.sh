@@ -24,15 +24,10 @@ kubectl create namespace observability --dry-run=client -o yaml | kubectl apply 
 # 1) Backends de telemetría primero
 helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   -n observability -f kube-prometheus-stack-values.yaml --wait
+helm upgrade --install tempo grafana/tempo -n observability -f tempo-values.yaml --wait
 helm upgrade --install loki  grafana/loki  -n observability -f loki-values.yaml  --wait
 
-# Trazas: Jaeger all-in-one (manifiesto plano, almacenamiento in-memory — como el lab DMC)
-kubectl apply -f jaeger.yaml
-
-# Logs: Promtail (DaemonSet) recoge el stdout de los pods y lo envía a Loki
-helm upgrade --install promtail grafana/promtail -n observability -f promtail-values.yaml --wait
-
-# 2) OTel Collector (recibe OTLP del API y reparte métricas -> Prometheus, trazas -> Jaeger)
+# 2) OTel Collector (recibe OTLP del API y reparte)
 helm upgrade --install otel-collector open-telemetry/opentelemetry-collector \
   -n observability -f otel-collector-values.yaml --wait
 

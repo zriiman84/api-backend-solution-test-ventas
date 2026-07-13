@@ -1,7 +1,5 @@
 # Configuración del OpenTelemetry Collector.
-# Recibe OTLP del API y reparte MÉTRICAS -> Prometheus y TRAZAS -> Jaeger.
-# Los LOGS ya NO pasan por aquí: los recoge Promtail desde el stdout del contenedor
-# y los envía a Loki (alineado al laboratorio DMC).
+# Recibe OTLP del API y reparte a los 3 backends: Prometheus, Tempo y Loki.
 
 receivers:
   otlp:
@@ -25,11 +23,15 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true   # convierte atributos de recurso (service.name, etc.) en labels
 
-  # TRAZAS -> Jaeger (OTLP gRPC; Jaeger all-in-one con COLLECTOR_OTLP_ENABLED)
-  otlp/jaeger:
-    endpoint: jaeger:4317
+  # TRAZAS -> Tempo (OTLP gRPC)
+  otlp/tempo:
+    endpoint: tempo:4317
     tls:
       insecure: true
+
+  # LOGS -> Loki (endpoint nativo OTLP de Loki 3.x)
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
 
   # Útil para depurar lo que llega al collector (se ve en `docker logs otel-collector`)
   debug:
@@ -47,4 +49,8 @@ service:
     traces:
       receivers: [otlp]
       processors: [resourcedetection, batch]
-      exporters: [otlp/jaeger, debug]
+      exporters: [otlp/tempo, debug]
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [otlphttp/loki]

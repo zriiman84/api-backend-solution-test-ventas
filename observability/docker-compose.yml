@@ -1,11 +1,10 @@
 name: observability
 
 # Stack local de observabilidad (3 pilares) para el API solution-test-ventas.
-# Alineado a las herramientas del laboratorio DMC (observabilidad-360): Jaeger + Loki/Promtail.
 #
 #   API .NET ──OTLP(4317)──► otel-collector ──► prometheus (métricas, scrape :8889)
-#                                          └──► jaeger     (trazas, OTLP)
-#   API .NET (stdout) ─────► promtail ─────────► loki      (logs)
+#                                          ├──► tempo      (trazas)
+#                                          └──► loki       (logs)
 #                                                  todo visualizado en grafana :3000
 #
 # El API se conecta desde su propio compose uniéndose a la red externa "observability"
@@ -32,6 +31,7 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'   # recibe métricas RED generadas por Tempo
       - '--enable-feature=exemplar-storage'    # guarda exemplars (link métrica -> traza)
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -42,16 +42,15 @@ services:
     networks: [observability]
     restart: unless-stopped
 
-  # TRAZAS: Jaeger all-in-one (como en el laboratorio DMC). Recibe OTLP del collector.
-  jaeger:
-    image: jaegertracing/all-in-one:1.55
-    container_name: obs-jaeger
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true   # habilita el receptor OTLP (4317 gRPC / 4318 HTTP)
+  tempo:
+    image: grafana/tempo:2.10.7
+    container_name: obs-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
     ports:
-      - "16686:16686"   # Jaeger UI
-      # OTLP (4317/4318) NO se publica al host: lo consume el collector por la red interna
-      # (el host :4317 ya lo usa el otel-collector).
+      - "3200:3200"   # API de consulta de Tempo
     networks: [observability]
     restart: unless-stopped
 
@@ -64,20 +63,6 @@ services:
       - loki-data:/loki
     ports:
       - "3100:3100"
-    networks: [observability]
-    restart: unless-stopped
-
-  # LOGS: Promtail lee el stdout de los contenedores vía el socket de Docker y los envía a Loki
-  # (como en el laboratorio DMC). Reemplaza el envío de logs por OTLP.
-  promtail:
-    image: grafana/promtail:3.4.2
-    container_name: obs-promtail
-    command: ["-config.file=/etc/promtail/config.yml"]
-    volumes:
-      - ./promtail-config.yml:/etc/promtail/config.yml:ro
-      - /var/log:/var/log:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on: [loki]
     networks: [observability]
     restart: unless-stopped
 
@@ -94,7 +79,7 @@ services:
       - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
-    depends_on: [prometheus, jaeger, loki]
+    depends_on: [prometheus, tempo, loki]
     networks: [observability]
     restart: unless-stopped
 
@@ -138,6 +123,7 @@ networks:
 
 volumes:
   prometheus-data:
+  tempo-data:
   loki-data:
   grafana-data:
   alertmanager-data:

@@ -18,7 +18,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Serilog.Events;
-using Serilog.Formatting.Json;
+using Serilog.Sinks.OpenTelemetry;
 using ApiSolutionTestVentas.Api.Observability;
 using System.Globalization;
 using System.Text;
@@ -29,17 +29,30 @@ var builder = WebApplication.CreateBuilder(args);
 //Configuraci�n del log
 var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "log.txt");
 
-// Logs alineados al laboratorio DMC: se escriben en JSON al stdout (con trace_id/span_id de la
-// traza actual) para que Promtail los recoja y los env�e a Loki. La correlaci�n log<->traza en
-// Grafana se hace por el campo trace_id (derivedField -> Jaeger). Las M�TRICAS y TRAZAS siguen
-// saliendo por OTLP hacia el OpenTelemetry Collector (ver ObservabilityExtensions.cs).
+//Endpoint del OpenTelemetry Collector. Si est� definido, ADEM�S exportamos los logs por OTLP (-> Loki).
+var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+var otelServiceName = Environment.GetEnvironmentVariable("OTEL_SERVICE_NAME") ?? "api-solution-test-ventas";
+
 var loggerConfiguration = new LoggerConfiguration()
-    .Enrich.FromLogContext()
-    .Enrich.With(new ActivityTraceEnricher()) //A�ade trace_id/span_id desde Activity.Current
-    .WriteTo.Console(new JsonFormatter())     //JSON a stdout -> Promtail -> Loki
+    .Enrich.FromLogContext() //A�ade contexto (incluye TraceId/SpanId para correlacionar logs con trazas)
+    .WriteTo.Console()
     .WriteTo.File(logPath,
         rollingInterval: RollingInterval.Day, //Indicamos que se cree un nuevo archivo cada d�a
         restrictedToMinimumLevel: LogEventLevel.Information); //M�nimo nivel de restricci�n ser� Information hacia arriba
+
+if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+{
+    loggerConfiguration.WriteTo.OpenTelemetry(options =>
+    {
+        options.Endpoint = otlpEndpoint;       // ej. http://otel-collector:4317
+        options.Protocol = OtlpProtocol.Grpc;
+        options.ResourceAttributes = new Dictionary<string, object>
+        {
+            ["service.name"] = otelServiceName,
+            ["deployment.environment"] = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Development"
+        };
+    });
+}
 
 var logger = loggerConfiguration.CreateLogger();
 

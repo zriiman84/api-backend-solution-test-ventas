@@ -29,26 +29,29 @@ grafana:
     enabled: true
     size: 5Gi
     # storageClassName: managed-csi
-  # Datasources extra: Jaeger (trazas) y Loki (logs). Prometheus ya es el default del chart.
+  # Datasources extra: Tempo (trazas) y Loki (logs). Prometheus ya es el default del chart.
   additionalDataSources:
-    - name: Jaeger
-      uid: jaeger
-      type: jaeger
+    - name: Tempo
+      uid: tempo
+      type: tempo
       access: proxy
-      url: http://jaeger.observability.svc:16686
+      url: http://tempo.observability.svc:3200
       jsonData:
         tracesToLogsV2:
           datasourceUid: loki
           filterByTraceID: true
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
     - name: Loki
       uid: loki
       type: loki
       access: proxy
-      # Loki en AKS responde por su gateway (nginx :80), no por svc/loki directo.
-      url: http://loki-gateway.observability.svc.cluster.local
+      url: http://loki.observability.svc:3100
       jsonData:
         derivedFields:
           - name: TraceID
             matcherRegex: '"?trace_?id"?[:=]"?(\w+)"?'
             url: '${__value.raw}'
-            datasourceUid: jaeger
+            datasourceUid: tempo
