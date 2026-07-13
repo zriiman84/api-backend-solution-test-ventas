@@ -504,3 +504,9 @@ iac_terraform/
 .DS_Store
 .idea/
 .vscode/
+
+# ---- Observabilidad: scripts de prueba/verificación local (no van al repo) ----
+# Generadores de carga/tráfico, chequeos ad-hoc y captura de pantallas para el informe.
+# (El script de despliegue k8s/observability/install.sh SÍ se versiona.)
+observability/*.sh
+observability/capture*.js

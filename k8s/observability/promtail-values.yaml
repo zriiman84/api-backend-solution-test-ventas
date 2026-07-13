@@ -1,0 +1,20 @@
+# Values para el chart grafana/promtail (DaemonSet).
+# Recoge el stdout de TODOS los pods del clúster (/var/log/pods) y lo envía a Loki.
+# Reemplaza el envío de logs por OTLP del OTel Collector (alineado al laboratorio DMC).
+
+config:
+  clients:
+    # Loki en AKS responde por su gateway (nginx) en el puerto 80.
+    - url: http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push
+
+# El chart trae por defecto el scrape de pods de Kubernetes (labels: namespace, pod, container,
+# app, node...). El log del API queda consultable en Grafana como {app="<APP_NAME>"} y cada línea
+# JSON lleva su trace_id (derivedField -> Jaeger) para correlacionar log <-> traza.
+
+resources:
+  requests: { cpu: 50m,  memory: 64Mi }
+  limits:   { cpu: 200m, memory: 128Mi }
+
+tolerations:
+  # Que también corra en nodos con taints (por si el node pool los tiene).
+  - operator: Exists
