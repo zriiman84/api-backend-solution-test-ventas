@@ -1,12 +1,14 @@
 # Observabilidad en AKS — Opción B (self-hosted)
 
-Despliega en el clúster el mismo stack que usamos en local: **OTel Collector → Prometheus + Tempo + Loki → Grafana**, todo en el namespace `observability`, vía Helm.
+Despliega en el clúster el mismo stack que usamos en local (alineado al lab DMC):
+**OTel Collector → Prometheus + Jaeger + Loki**, con **Promtail** para logs y **Grafana**,
+todo en el namespace `observability`, vía Helm.
 
 ```
 API (.NET, namespace default) ──OTLP:4317──▶ OTel Collector (ns observability)
                                               ├─ remote_write ─▶ Prometheus (kube-prometheus-stack)
-                                              ├─ OTLP ─────────▶ Tempo
-                                              └─ OTLP/HTTP ────▶ Loki
+                                              └─ OTLP ─────────▶ Jaeger (all-in-one)
+API (.NET, stdout) ──▶ Promtail (DaemonSet) ──────────────────▶ Loki
                                                        todo en Grafana (kube-prometheus-stack)
 ```
 
@@ -30,23 +32,31 @@ bash install.sh
 kubectl -n observability port-forward svc/kube-prometheus-stack-grafana 3000:80
 # http://localhost:3000  (usuario admin / adminPassword del values)
 ```
-Datasources ya provisionados: Prometheus (métricas), Tempo (trazas), Loki (logs), correlados por `trace_id`.
+Datasources ya provisionados: Prometheus (métricas), Jaeger (trazas), Loki (logs), correlados por `trace_id`.
+
+Jaeger UI (opcional, sin datasource):
+```bash
+kubectl -n observability port-forward svc/jaeger 16686:16686   # http://localhost:16686
+```
 
 ## Archivos
 | Archivo | Qué configura |
 |---|---|
-| `otel-collector-values.yaml` | Collector (imagen contrib): recibe OTLP, reparte a Prometheus/Tempo/Loki |
-| `kube-prometheus-stack-values.yaml` | Prometheus (remote-write on) + Grafana (+ datasources Tempo/Loki) + Alertmanager |
-| `tempo-values.yaml` | Tempo single-binary (OTLP, storage local) |
-| `loki-values.yaml` | Loki single-binary (filesystem, OTLP) |
-| `install.sh` | Añade repos Helm e instala todo en orden |
+| `otel-collector-values.yaml` | Collector (imagen contrib): recibe OTLP, reparte métricas → Prometheus y trazas → Jaeger |
+| `kube-prometheus-stack-values.yaml` | Prometheus (remote-write on) + Grafana (+ datasources Jaeger/Loki) + Alertmanager |
+| `jaeger.yaml` | Jaeger all-in-one (Deployment+Service, in-memory) — backend de trazas |
+| `loki-values.yaml` | Loki single-binary (filesystem) |
+| `promtail-values.yaml` | Promtail (DaemonSet): recoge el stdout de los pods → Loki |
+| `install.sh` | Añade repos Helm, aplica `jaeger.yaml` e instala todo en orden |
 
 ## A AJUSTAR antes de producción (no probado en clúster real aún)
-- **`storageClassName`**: descomentar y poner el de tu AKS (p.ej. `managed-csi`) en los PVC de Prometheus/Grafana/Tempo/Loki.
+- **`storageClassName`**: descomentar y poner el de tu AKS (p.ej. `managed-csi`) en los PVC de Prometheus/Grafana/Loki.
 - **`grafana.adminPassword`**: hoy es `CHANGE_ME_admin` → usar un secreto real (`existingSecret`) o Azure Key Vault.
 - **Recursos** (`requests`/`limits`): dimensionar según el node pool (hoy `Standard_B2s`, modesto).
 - **Persistencia/retención**: 7 días y discos de ejemplo; ajustar a la política real.
 - **Exposición de Grafana**: hoy solo por `port-forward`. Para acceso permanente, Ingress + cert (no expongas Grafana sin auth/TLS).
-- **Alta disponibilidad**: Tempo/Loki van en single-binary (suficiente para empezar; no HA).
+- **Alta disponibilidad**: Loki va en single-binary y **Jaeger en all-in-one con storage in-memory**
+  (las trazas se pierden al reiniciar el pod). Suficiente para dev/demo; no HA ni persistente.
+  Para trazas persistentes: Jaeger con Cassandra/Elasticsearch, o volver a Tempo.
 
 > Alternativa gestionada (menos mantenimiento): Opción A en `../../observability/AZURE.md` (Azure Monitor + Managed Prometheus/Grafana).
