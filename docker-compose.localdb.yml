@@ -12,7 +12,7 @@ services:
     container_name: sqlserver-local
     environment:
       - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=Local_Dev_Pass123!
+      - MSSQL_SA_PASSWORD=${SQL_PASSWORD}
       - MSSQL_PID=Developer
       - MSSQL_MEMORY_LIMIT_MB=2048      # capamos memoria para no ahogar WSL
     ports:
