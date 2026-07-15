@@ -1,5 +1,7 @@
 # Values para el chart open-telemetry/opentelemetry-collector (modo Deployment).
-# El API exporta OTLP a este collector; el collector reparte a Prometheus/Tempo/Loki en el clúster.
+# El API exporta OTLP a este collector; el collector reparte MÉTRICAS -> Prometheus y
+# TRAZAS -> Jaeger. Los LOGS ya NO pasan por aquí: los recoge Promtail (DaemonSet) desde el
+# stdout de los pods y los envía a Loki (alineado al laboratorio DMC).
 #
 # Servicio resultante (lo usa el API en k8s/deployment.yml):
 #   otel-collector-opentelemetry-collector.observability.svc.cluster.local:4317
@@ -45,14 +47,11 @@ config:
       endpoint: http://kube-prometheus-stack-prometheus.observability.svc:9090/api/v1/write
       resource_to_telemetry_conversion:
         enabled: true
-    # TRAZAS -> Tempo
-    otlp/tempo:
-      endpoint: tempo.observability.svc:4317
+    # TRAZAS -> Jaeger (all-in-one con OTLP habilitado; ver jaeger.yaml)
+    otlp/jaeger:
+      endpoint: jaeger.observability.svc:4317
       tls:
         insecure: true
-    # LOGS -> Loki (endpoint nativo OTLP de Loki 3.x)
-    otlphttp/loki:
-      endpoint: http://loki.observability.svc:3100/otlp
   service:
     pipelines:
       metrics:
@@ -62,8 +61,4 @@ config:
       traces:
         receivers: [otlp]
         processors: [batch]
-        exporters: [otlp/tempo]
-      logs:
-        receivers: [otlp]
-        processors: [batch]
-        exporters: [otlphttp/loki]
+        exporters: [otlp/jaeger]

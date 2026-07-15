@@ -21,7 +21,8 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.0.1" />
   </ItemGroup>
 
-  <!-- Observabilidad: OpenTelemetry (métricas + trazas) y sink de logs OTLP -->
+  <!-- Observabilidad: OpenTelemetry (métricas + trazas por OTLP). Los logs van por stdout
+       (Serilog Console en JSON) y los recoge Promtail hacia Loki (alineado al lab DMC). -->
   <ItemGroup>
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.16.0" />
@@ -29,7 +30,6 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
     <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.15.1-beta.1" />
-    <PackageReference Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
   </ItemGroup>
 
   <ItemGroup>
