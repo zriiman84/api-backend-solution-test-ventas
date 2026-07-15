@@ -39,6 +39,16 @@ Infraestructura / DevOps
 -   GitHub
 -   IaC Modular
 
+Observabilidad / Monitoreo
+-   OpenTelemetry (.NET)
+-   OpenTelemetry Collector
+-   Prometheus
+-   Jaeger
+-   Loki + Promtail
+-   Grafana
+-   Alertmanager
+-   Serilog
+
 ## 🏗️ Arquitectura del Proyecto
 
 La solución sigue una arquitectura desacoplada basada en capas:
@@ -273,6 +283,65 @@ Cada Environment de GitHub (`development`, `qa`, `approval-qa`, `prod`, `approva
 - **Variables**: `ENV`, `ACR_NAME`, `ACR_LOGIN_SERVER`, `AZURE_RESOURCE_GROUP`, `AKS_CLUSTER_NAME`.
 
 Los environments `approval-qa` y `approval-prod` no ejecutan despliegue por sí mismos: actúan como **gate de aprobación manual** (Required Reviewers) que debe pasar antes de que el job de despliegue (`deploy-to-qa` / `deploy-to-prd`) pueda ejecutarse.
+
+## 🔭 Observabilidad y Monitoreo
+
+El backend incorpora un **stack de observabilidad self-hosted** (Opción B, alineado al laboratorio DMC *observabilidad-360*) que cubre los **3 pilares**: **métricas, trazas y logs**. Es la capa que permite ver, en tiempo real, cómo se comporta la API tanto en local como en AKS.
+
+### 🧩 Stack
+
+**OpenTelemetry** (instrumentación del API .NET) → **OTel Collector** → **Prometheus** (métricas) + **Jaeger** (trazas) + **Loki** (logs), con **Promtail** (recolección de logs desde stdout), **Grafana** (visualización), **Alertmanager** (alertas) y **Node Exporter** (métricas de infraestructura).
+
+```
+                               ┌──► Prometheus (métricas) ──► Alertmanager (alertas)
+ API .NET ──OTLP──► OTel Collector ─┴──► Jaeger      (trazas)
+ API .NET (stdout JSON) ──► Promtail ───► Loki        (logs)
+                                    todo visualizado en Grafana
+```
+
+- **Métricas y trazas** salen del API por **OTLP** hacia el OTel Collector, que las reparte a **Prometheus** (remote-write) y **Jaeger**.
+- **Logs**: el API escribe **JSON a `stdout`** con `trace_id`/`span_id`; **Promtail** los recoge y los envía a **Loki**. La correlación **log ↔ traza** se hace por `trace_id` (desde un log en Grafana se salta a su traza en Jaeger).
+
+### 🧬 Instrumentación en el código
+
+| Archivo | Rol |
+|---|---|
+| `src/ApiSolutionTestVentas.Api/Observability/ObservabilityExtensions.cs` | Configura OpenTelemetry: métricas (ASP.NET Core + HttpClient + Runtime) y trazas (ASP.NET Core + HttpClient + EF Core) → OTLP al Collector |
+| `src/ApiSolutionTestVentas.Api/Observability/ActivityTraceEnricher.cs` | Inyecta `trace_id`/`span_id` en cada log para la correlación log ↔ traza |
+| `Program.cs` | Registra la observabilidad (`AddObservability`) y configura Serilog para escribir JSON a stdout |
+
+> La instrumentación **solo se activa** si existe la variable `OTEL_EXPORTER_OTLP_ENDPOINT`. Sin ella, el API corre normal pero **no exporta** telemetría (cero ruido).
+
+### 📊 Dashboard — Golden Signals
+
+Dashboard de Grafana **"API solution-test-ventas — Golden Signals (RED + Saturation)"**, organizado en las 4 señales de Google SRE:
+
+| Señal | Paneles |
+|---|---|
+| 🟦 **Tráfico** | request rate total, por método HTTP, por ruta y llamadas salientes (HttpClient) |
+| 🟥 **Errores** | % 5xx, % 4xx, requests por código de estado, excepciones .NET |
+| 🟨 **Latencia** | p50 / p95 / p99, p95 por ruta |
+| 🟩 **Saturación** | requests activas, memoria y CPU del proceso .NET, thread pool, CPU/RAM del host |
+
+### 📁 Dónde vive y cómo levantarlo
+
+| Entorno | Carpeta | Cómo |
+|---|---|---|
+| **Local** (Docker Compose) | `observability/` | `cd observability && docker compose up -d` — guía completa en [observability/README.md](observability/README.md) |
+| **AKS** (Helm + manifests) | `k8s/observability/` | `cd k8s/observability && ./install.sh` (una sola vez por clúster) — guía en [k8s/observability/README.md](k8s/observability/README.md) |
+
+Conectar el API a la observabilidad en **local** (añade las variables `OTEL_*` y lo une a la red del stack):
+```
+docker compose -f docker-compose.yaml -f docker-compose.observability.yml up -d --build
+```
+
+Acceder a **Grafana en AKS** (es un servicio interno del clúster, sin URL pública):
+```
+kubectl port-forward -n observability svc/kube-prometheus-stack-grafana 3000:80
+# -> http://localhost:3000
+```
+
+> 📄 Informes con narrativa y capturas: [observability/INFORME-PROYECTO.html](observability/INFORME-PROYECTO.html) y [observability/INFORME-OBSERVABILIDAD-AKS.html](observability/INFORME-OBSERVABILIDAD-AKS.html). Notas de Azure/AKS en [observability/AZURE.md](observability/AZURE.md).
 
 ## 📘 Swagger
 
